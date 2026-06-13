@@ -1,0 +1,69 @@
+<div class="container mx-auto p-6">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold text-gray-800">Backtesting</h2>
+        <button mat-raised-button color="primary" (click)="openRunDialog()">
+            <mat-icon class="mr-2">play_arrow</mat-icon> Run New Backtest
+        </button>
+    </div>
+
+    <div *ngIf="isLoading" class="flex justify-center p-8">
+        <mat-spinner diameter="40"></mat-spinner>
+    </div>
+
+    <div *ngIf="!isLoading && backtests.length === 0" class="text-center p-8 bg-white rounded-lg shadow-sm">
+        <mat-icon class="text-4xl text-gray-400 mb-2">history_edu</mat-icon>
+        <p class="text-gray-500">No backtests run yet.</p>
+    </div>
+
+    <div *ngIf="!isLoading && backtests.length > 0" class="bg-white rounded-lg shadow overflow-hidden">
+        <table mat-table [dataSource]="backtests" class="w-full">
+            <ng-container matColumnDef="strategyName">
+                <th mat-header-cell *matHeaderCellDef> Strategy </th>
+                <td mat-cell *matCellDef="let element"> {{element.strategyName}} </td>
+            </ng-container>
+
+            <ng-container matColumnDef="symbol">
+                <th mat-header-cell *matHeaderCellDef> Symbol </th>
+                <td mat-cell *matCellDef="let element"> {{element.symbol}} </td>
+            </ng-container>
+
+            <ng-container matColumnDef="interval">
+                <th mat-header-cell *matHeaderCellDef> Interval </th>
+                <td mat-cell *matCellDef="let element"> {{element.interval}} </td>
+            </ng-container>
+
+            <ng-container matColumnDef="dateRange">
+                <th mat-header-cell *matHeaderCellDef> Date Range </th>
+                <td mat-cell *matCellDef="let element" class="text-xs text-gray-500">
+                    {{element.startDate | date:'shortDate'}} - {{element.endDate | date:'shortDate'}}
+                </td>
+            </ng-container>
+
+            <ng-container matColumnDef="return">
+                <th mat-header-cell *matHeaderCellDef> Total Return </th>
+                <td mat-cell *matCellDef="let element"
+                    [class]="element.totalReturn >= 0 ? 'text-green-600 font-bold' : 'text-red-600 font-bold'">
+                    {{element.totalReturn | number:'1.2-2'}}%
+                </td>
+            </ng-container>
+
+            <ng-container matColumnDef="drawdown">
+                <th mat-header-cell *matHeaderCellDef> Max Drawdown </th>
+                <td mat-cell *matCellDef="let element" class="text-red-500"> {{element.maxDrawdown | number:'1.2-2'}}%
+                </td>
+            </ng-container>
+
+            <ng-container matColumnDef="actions">
+                <th mat-header-cell *matHeaderCellDef> Actions </th>
+                <td mat-cell *matCellDef="let element">
+                    <button mat-icon-button color="warn" (click)="deleteBacktest(element.id)">
+                        <mat-icon>delete</mat-icon>
+                    </button>
+                </td>
+            </ng-container>
+
+            <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+            <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+        </table>
+    </div>
+</div>

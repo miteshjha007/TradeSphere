@@ -1,0 +1,6 @@
+@TradeSphere.API_HostAddress = http://localhost:5083
+
+GET {{TradeSphere.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

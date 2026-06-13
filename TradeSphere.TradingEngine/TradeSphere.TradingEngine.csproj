@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-TradeSphere.TradingEngine-fb72b89e-4da8-428d-a840-d39fd7778038</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TradeSphere.Application\TradeSphere.Application.csproj" />
+    <ProjectReference Include="..\TradeSphere.Infrastructure\TradeSphere.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

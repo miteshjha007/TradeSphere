@@ -1,0 +1,53 @@
+{
+    "users": [
+        {
+            "id": 1,
+            "username": "admin",
+            "email": "admin@tradesphere.com",
+            "password": "admin123",
+            "role": "Admin",
+            "createdAt": "2024-01-01T00:00:00Z"
+        },
+        {
+            "id": 2,
+            "username": "trader1",
+            "email": "trader1@example.com",
+            "password": "password123",
+            "role": "User",
+            "createdAt": "2024-01-15T10:30:00Z"
+        },
+        {
+            "id": 3,
+            "username": "testuser",
+            "email": "test@example.com",
+            "password": "test123",
+            "role": "User",
+            "createdAt": "2024-02-01T14:20:00Z"
+        }
+    ],
+    "otpCodes": [
+        {
+            "email": "admin@tradesphere.com",
+            "otp": "123456",
+            "expiresAt": "2026-12-31T23:59:59Z",
+            "isUsed": false
+        },
+        {
+            "email": "trader1@example.com",
+            "otp": "654321",
+            "expiresAt": "2026-12-31T23:59:59Z",
+            "isUsed": false
+        },
+        {
+            "email": "test@example.com",
+            "otp": "111111",
+            "expiresAt": "2026-12-31T23:59:59Z",
+            "isUsed": false
+        }
+    ],
+    "metadata": {
+        "lastUserId": 3,
+        "version": "1.0",
+        "notes": "Temporary JSON database for testing. OTPs are set to expire far in the future for easy testing. In production, implement proper OTP expiration (5-10 minutes) and email sending."
+    }
+}

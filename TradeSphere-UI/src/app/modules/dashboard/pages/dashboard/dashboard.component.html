@@ -1,0 +1,124 @@
+<div class="h-full" *ngIf="data; else loading">
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+        <mat-card class="stats-card bg-white">
+            <mat-card-content class="flex items-center p-4">
+                <div class="p-3 rounded-full bg-blue-100 text-blue-600 mr-4">
+                    <mat-icon>account_balance_wallet</mat-icon>
+                </div>
+                <div>
+                    <p class="text-gray-500 text-sm">Total Balance</p>
+                    <p class="text-2xl font-bold">${{ data.totalBalance | number:'1.2-2' }}</p>
+                </div>
+            </mat-card-content>
+        </mat-card>
+
+        <mat-card class="stats-card bg-white">
+            <mat-card-content class="flex items-center p-4">
+                <div class="p-3 rounded-full bg-green-100 text-green-600 mr-4">
+                    <mat-icon>trending_up</mat-icon>
+                </div>
+                <div>
+                    <p class="text-gray-500 text-sm">Total P&L</p>
+                    <p class="text-2xl font-bold text-green-600">+${{ data.totalPnl | number:'1.2-2' }}</p>
+                </div>
+            </mat-card-content>
+        </mat-card>
+
+        <mat-card class="stats-card bg-white">
+            <mat-card-content class="flex items-center p-4">
+                <div class="p-3 rounded-full bg-purple-100 text-purple-600 mr-4">
+                    <mat-icon>psychology</mat-icon>
+                </div>
+                <div>
+                    <p class="text-gray-500 text-sm">Active Strategies</p>
+                    <p class="text-2xl font-bold">{{ data.activeStrategies }}</p>
+                </div>
+            </mat-card-content>
+        </mat-card>
+
+        <mat-card class="stats-card bg-white">
+            <mat-card-content class="flex items-center p-4">
+                <div class="p-3 rounded-full bg-orange-100 text-orange-600 mr-4">
+                    <mat-icon>currency_exchange</mat-icon>
+                </div>
+                <div>
+                    <p class="text-gray-500 text-sm">Connected Exchanges</p>
+                    <p class="text-2xl font-bold">{{ data.connectedExchanges }}</p>
+                </div>
+            </mat-card-content>
+        </mat-card>
+    </div>
+
+    <!-- Charts & Tables Section -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Top Strategies -->
+        <mat-card class="lg:col-span-2">
+            <mat-card-header>
+                <mat-card-title>Top Performing Strategies</mat-card-title>
+            </mat-card-header>
+            <mat-card-content>
+                <div class="overflow-x-auto mt-4">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="border-b text-gray-500 text-sm">
+                                <th class="py-2">Strategy Name</th>
+                                <th class="py-2">Win Rate</th>
+                                <th class="py-2 text-right">P&L</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr *ngFor="let strategy of data.topStrategies"
+                                class="border-b last:border-0 hover:bg-gray-50">
+                                <td class="py-3 font-medium">{{ strategy.name }}</td>
+                                <td class="py-3 text-green-600">{{ strategy.winRate }}%</td>
+                                <td class="py-3 text-right font-bold text-green-600">+${{ strategy.pnl }}</td>
+                            </tr>
+                            <tr *ngIf="data.topStrategies.length === 0">
+                                <td colspan="3" class="py-4 text-center text-gray-500">No active strategies yet.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </mat-card-content>
+        </mat-card>
+
+        <!-- Recent Activity -->
+        <mat-card>
+            <mat-card-header>
+                <mat-card-title>Recent Trades</mat-card-title>
+            </mat-card-header>
+            <mat-card-content>
+                <div class="mt-4 space-y-4">
+                    <div *ngFor="let trade of data.recentTrades"
+                        class="flex items-center justify-between p-2 rounded hover:bg-gray-50">
+                        <div class="flex items-center">
+                            <div [class]="trade.side === 'Buy' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'"
+                                class="p-2 rounded-full mr-3">
+                                <mat-icon class="text-sm font-bold">{{ trade.side === 'Buy' ? 'arrow_upward' :
+                                    'arrow_downward' }}</mat-icon>
+                            </div>
+                            <div>
+                                <p class="font-medium text-sm">{{ trade.symbol }}</p>
+                                <p class="text-xs text-gray-500">{{ trade.timeAgo }}</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-sm font-semibold">${{ trade.price }}</p>
+                            <p class="text-xs text-gray-500">{{ trade.quantity }} units</p>
+                        </div>
+                    </div>
+                    <div *ngIf="data.recentTrades.length === 0" class="text-center text-gray-500 text-sm py-4">
+                        No recent trades.
+                    </div>
+                </div>
+            </mat-card-content>
+        </mat-card>
+    </div>
+</div>
+
+<ng-template #loading>
+    <div class="flex justify-center items-center h-full">
+        <mat-spinner diameter="50"></mat-spinner>
+    </div>
+</ng-template>

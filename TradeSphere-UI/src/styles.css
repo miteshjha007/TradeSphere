@@ -1,0 +1,56 @@
+@import '@angular/material/prebuilt-themes/indigo-pink.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+html, body {
+  height: 100%;
+}
+body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; background-color: #f3f4f6; }
+
+/* Custom Premium Dialog Styling */
+.mat-mdc-dialog-container {
+  --mdc-dialog-container-shape: 20px !important;
+  border-radius: 20px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.mat-mdc-dialog-surface {
+  border-radius: 20px !important;
+  padding: 0 !important;
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.15) !important;
+  background: white !important;
+}
+
+/* Override padding added by Angular Material internal layout elements */
+.mat-mdc-dialog-content {
+  padding: 0 !important;
+  margin: 0 !important;
+  max-height: none !important;
+}
+
+.mat-mdc-dialog-actions {
+  padding: 0 !important;
+  margin: 0 !important;
+  min-height: auto !important;
+}

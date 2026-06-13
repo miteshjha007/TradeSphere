@@ -1,0 +1,121 @@
+<div class="container mx-auto p-6 max-w-3xl">
+    <!-- Header -->
+    <div class="mb-8 flex items-center">
+        <button mat-icon-button routerLink="/strategies" class="mr-4 bg-white hover:bg-gray-50 border rounded-xl shadow-sm transition">
+            <mat-icon class="text-gray-600">arrow_back</mat-icon>
+        </button>
+        <div>
+            <h2 class="text-2xl font-bold text-gray-800 leading-tight">Deploy New Strategy</h2>
+            <p class="text-xs text-gray-400 mt-1">Configure and launch a new automated trading strategy instance.</p>
+        </div>
+    </div>
+
+    <!-- Main Stepper Card -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <mat-stepper #stepper linear class="custom-premium-stepper">
+            <!-- Step 1: Select Strategy & Market -->
+            <mat-step [stepControl]="firstFormGroup">
+                <form [formGroup]="firstFormGroup" class="p-6 md:p-8 flex flex-col gap-6">
+                    <ng-template matStepLabel>Select Strategy & Market</ng-template>
+
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-800 mb-1">Target Strategy & Market</h3>
+                        <p class="text-xs text-gray-400">Specify the templates and trading exchange parameters.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-2">
+                        <!-- Strategy Template Selection -->
+                        <div class="flex flex-col gap-1.5">
+                            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Strategy Template</label>
+                            <div class="relative flex items-center">
+                                <select formControlName="strategyId" (change)="onStrategySelect(+($any($event.target).value))"
+                                    class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 outline-none text-sm text-gray-700 appearance-none cursor-pointer">
+                                    <option value="" disabled selected>Choose a strategy template</option>
+                                    <option *ngFor="let s of availableStrategies" [value]="s.id">{{ s.name }}</option>
+                                </select>
+                                <div class="pointer-events-none absolute right-4 text-gray-400 flex items-center">
+                                    <mat-icon>keyboard_arrow_down</mat-icon>
+                                </div>
+                            </div>
+                            <div *ngIf="firstFormGroup.get('strategyId')?.invalid && firstFormGroup.get('strategyId')?.touched" class="text-xs text-red-500 font-medium">
+                                Strategy is required
+                            </div>
+                        </div>
+
+                        <!-- Exchange Account Selection -->
+                        <div class="flex flex-col gap-1.5">
+                            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Exchange Account</label>
+                            <div class="relative flex items-center">
+                                <select formControlName="exchangeId"
+                                    class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 outline-none text-sm text-gray-700 appearance-none cursor-pointer">
+                                    <option value="" disabled selected>Choose a connected exchange</option>
+                                    <option *ngFor="let ex of userExchanges" [value]="ex.id">{{ ex.name }} ({{ ex.exchangeName }})</option>
+                                </select>
+                                <div class="pointer-events-none absolute right-4 text-gray-400 flex items-center">
+                                    <mat-icon>keyboard_arrow_down</mat-icon>
+                                </div>
+                            </div>
+                            <div *ngIf="firstFormGroup.get('exchangeId')?.invalid && firstFormGroup.get('exchangeId')?.touched" class="text-xs text-red-500 font-medium">
+                                Exchange is required
+                            </div>
+                        </div>
+
+                        <!-- Trading Pair / Symbol -->
+                        <div class="flex flex-col gap-1.5 md:col-span-2">
+                            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Trading Pair (Symbol)</label>
+                            <input type="text" formControlName="symbol" placeholder="e.g. BTCUSDT or ETH/USD"
+                                class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 outline-none text-sm text-gray-700 placeholder-gray-400"
+                                [class.border-red-500]="firstFormGroup.get('symbol')?.invalid && firstFormGroup.get('symbol')?.touched">
+                            <div *ngIf="firstFormGroup.get('symbol')?.invalid && firstFormGroup.get('symbol')?.touched" class="text-xs text-red-500 font-medium">
+                                Symbol is required
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Next Action Button -->
+                    <div class="flex justify-end mt-4 pt-4 border-t border-gray-100">
+                        <button type="button" matStepperNext [disabled]="firstFormGroup.invalid"
+                            class="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white font-semibold text-sm transition-all duration-200 outline-none shadow-sm hover:shadow">
+                            Continue Setup
+                        </button>
+                    </div>
+                </form>
+            </mat-step>
+
+            <!-- Step 2: Configuration Parameters -->
+            <mat-step [stepControl]="secondFormGroup">
+                <form [formGroup]="secondFormGroup" class="p-6 md:p-8 flex flex-col gap-6">
+                    <ng-template matStepLabel>Configuration</ng-template>
+
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-800 mb-1">Strategy Parameters</h3>
+                        <p class="text-xs text-gray-400">Configure parameters in JSON format. Default parameters are populated from the template.</p>
+                    </div>
+
+                    <!-- Configuration JSON Area -->
+                    <div class="flex flex-col gap-1.5 mt-2">
+                        <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Configuration JSON</label>
+                        <textarea formControlName="config" rows="10" 
+                            class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 outline-none text-sm text-gray-700 font-mono"
+                            [class.border-red-500]="secondFormGroup.get('config')?.invalid && secondFormGroup.get('config')?.touched"></textarea>
+                        <div *ngIf="secondFormGroup.get('config')?.invalid && secondFormGroup.get('config')?.touched" class="text-xs text-red-500 font-medium">
+                            JSON parameters are required
+                        </div>
+                    </div>
+
+                    <!-- Back / Deploy Actions -->
+                    <div class="flex justify-between items-center mt-4 pt-4 border-t border-gray-100">
+                        <button type="button" matStepperPrevious
+                            class="px-5 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-700 font-semibold text-sm transition-all duration-200 outline-none">
+                            Back
+                        </button>
+                        <button type="button" (click)="deploy()" [disabled]="firstFormGroup.invalid || secondFormGroup.invalid"
+                            class="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed text-white font-semibold text-sm transition-all duration-200 outline-none shadow-sm hover:shadow">
+                            Deploy Strategy
+                        </button>
+                    </div>
+                </form>
+            </mat-step>
+        </mat-stepper>
+    </div>
+</div>
