@@ -1,6 +1,6 @@
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ReactiveFormsModule } from '@angular/forms';
+import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { MatCardModule } from '@angular/material/card';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -16,16 +16,19 @@ import { MatNativeDateModule } from '@angular/material/core';
 import { BacktestingRoutingModule } from './backtesting-routing.module';
 import { BacktestDashboardComponent } from './pages/backtest-dashboard/backtest-dashboard.component';
 import { RunBacktestDialogComponent } from './components/run-backtest-dialog/run-backtest-dialog.component';
+import { BacktestResultDialogComponent } from './components/backtest-result-dialog/backtest-result-dialog.component';
 
 
 @NgModule({
   declarations: [
     BacktestDashboardComponent,
-    RunBacktestDialogComponent
+    RunBacktestDialogComponent,
+    BacktestResultDialogComponent
   ],
   imports: [
     CommonModule,
     BacktestingRoutingModule,
+    FormsModule,
     ReactiveFormsModule,
     MatCardModule,
     MatButtonModule,

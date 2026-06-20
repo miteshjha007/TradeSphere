@@ -4,6 +4,13 @@ import { Observable } from 'rxjs';
 import { AuthService } from '../../auth/services/auth.service';
 import { Exchange, UserExchange, ConnectExchangeDto } from '../models/exchange.model';
 
+export interface ConnectionTestResult {
+  success: boolean;
+  message: string;
+  walletBalance?: number;
+  currency?: string;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -31,5 +38,9 @@ export class ExchangeService {
 
   deleteExchange(id: number): Observable<void> {
     return this.http.delete<void>(`${this.apiUrl}/${id}`, { headers: this.getHeaders() });
+  }
+
+  testConnection(id: number): Observable<ConnectionTestResult> {
+    return this.http.post<ConnectionTestResult>(`${this.apiUrl}/${id}/test-connection`, {}, { headers: this.getHeaders() });
   }
 }

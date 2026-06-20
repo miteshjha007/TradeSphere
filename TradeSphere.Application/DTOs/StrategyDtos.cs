@@ -21,6 +21,9 @@ namespace TradeSphere.Application.DTOs
         public string StrategyName { get; set; }
         public int ExchangeId { get; set; }
         public string ExchangeName { get; set; }
+        public string ExecutionProvider { get; set; }
+        public int? Mt5AccountId { get; set; }
+        public string? Mt5AccountName { get; set; }
         public string Symbol { get; set; }
         public string Config { get; set; }
         public string Status { get; set; } // Running, Stopped
@@ -30,7 +33,9 @@ namespace TradeSphere.Application.DTOs
     public class DeployStrategyDto
     {
         public int StrategyId { get; set; }
-        public int ExchangeId { get; set; }
+        public string ExecutionProvider { get; set; } = "Delta";
+        public int? UserExchangeId { get; set; }  // ID of the user's connected exchange account
+        public int? Mt5AccountId { get; set; }
         public string Symbol { get; set; }
         public string Config { get; set; }
     }

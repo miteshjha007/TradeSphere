@@ -31,5 +31,7 @@ namespace TradeSphere.Application.DTOs
         public DateTime EndDate { get; set; }
         public decimal InitialCapital { get; set; } = 10000;
         public string? ConfigOverrides { get; set; } // Optional JSON to override strategy defaults
+        public string DataSource { get; set; } = "Delta"; // Delta, MT5
+        public int? Mt5AccountId { get; set; }
     }
 }

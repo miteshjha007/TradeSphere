@@ -32,4 +32,8 @@ export class BacktestService {
     deleteBacktest(id: number): Observable<void> {
         return this.http.delete<void>(`${this.apiUrl}/${id}`, { headers: this.getHeaders() });
     }
+
+    deleteAllBacktests(): Observable<void> {
+        return this.http.delete<void>(this.apiUrl, { headers: this.getHeaders() });
+    }
 }

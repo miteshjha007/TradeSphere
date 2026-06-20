@@ -30,7 +30,7 @@ CREATE TABLE Coins (
 
 -- Initial Seed for Exchanges
 INSERT INTO Exchanges (Name, BaseUrl) VALUES 
-('Delta Exchange', 'https://api.delta.exchange'),
+('Delta Exchange', 'https://api.india.delta.exchange'),
 ('Cosmic Exchange', 'https://api.cosmic.exchange');
 
 -- User Exchanges (Connected API Keys)
@@ -85,7 +85,9 @@ CREATE TABLE Trades (
     ExecutedAt TIMESTAMP WITH TIME ZONE,
     CreatedAt TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     Pnl DECIMAL(18, 8) DEFAULT 0,
-    ExternalOrderId VARCHAR(100)
+    ExternalOrderId VARCHAR(100),
+    ErrorReason TEXT,
+    BrokerResponse TEXT
 );
 
 -- Backtest Results

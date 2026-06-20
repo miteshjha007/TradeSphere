@@ -1,67 +1,136 @@
-<div class="container mx-auto p-6">
+<div class="min-h-screen bg-gray-50 p-6">
+  <div class="max-w-5xl mx-auto">
+
+    <!-- Header -->
     <div class="flex justify-between items-center mb-6">
-        <h2 class="text-2xl font-bold text-gray-800">Connected Exchanges</h2>
-        <button mat-raised-button color="primary" (click)="openAddExchangeDialog()">
-            <mat-icon class="mr-2">add</mat-icon> Connect Exchange
-        </button>
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">Connected Exchanges</h1>
+        <p class="text-sm text-gray-500 mt-0.5">Manage your broker accounts and verify API connections</p>
+      </div>
+      <button mat-raised-button color="primary" (click)="openAddExchangeDialog()" class="flex items-center gap-1">
+        <mat-icon>add</mat-icon> Connect Exchange
+      </button>
     </div>
 
-    <div *ngIf="isLoading" class="flex justify-center p-8">
-        <mat-spinner diameter="40"></mat-spinner>
+    <!-- Error banner -->
+    <div *ngIf="errorMessage" class="mb-4 flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+      <mat-icon class="text-red-500" style="font-size:18px;height:18px;width:18px;">error</mat-icon>
+      <span class="flex-1">{{ errorMessage }}</span>
+      <button (click)="errorMessage = null" class="text-red-400 hover:text-red-600">
+        <mat-icon style="font-size:18px;height:18px;width:18px;">close</mat-icon>
+      </button>
     </div>
 
+    <!-- Loading -->
+    <div *ngIf="isLoading" class="flex justify-center p-12">
+      <mat-spinner diameter="40"></mat-spinner>
+    </div>
+
+    <!-- Empty state -->
     <div *ngIf="!isLoading && exchanges.length === 0"
-        class="text-center p-8 bg-white rounded-lg shadow-sm border border-dashed border-gray-300">
-        <mat-icon class="text-4xl text-gray-400 mb-2">currency_exchange</mat-icon>
-        <p class="text-gray-500">No exchanges connected yet.</p>
-        <button mat-button color="primary" class="mt-2" (click)="openAddExchangeDialog()">Connect your first
-            exchange</button>
+      class="flex flex-col items-center justify-center p-16 bg-white rounded-2xl border border-dashed border-gray-200 shadow-sm text-center">
+      <div class="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4">
+        <mat-icon class="text-blue-400" style="font-size:32px;height:32px;width:32px;">currency_exchange</mat-icon>
+      </div>
+      <h3 class="font-semibold text-gray-700 mb-1">No exchanges connected</h3>
+      <p class="text-sm text-gray-400 mb-4">Connect your first exchange to start automated trading</p>
+      <button mat-raised-button color="primary" (click)="openAddExchangeDialog()">Connect Exchange</button>
     </div>
 
-    <div *ngIf="!isLoading && exchanges.length > 0" class="bg-white rounded-lg shadow overflow-hidden">
-        <table mat-table [dataSource]="exchanges" class="w-full">
-            <!-- Name Column -->
-            <ng-container matColumnDef="name">
-                <th mat-header-cell *matHeaderCellDef> Account Name </th>
-                <td mat-cell *matCellDef="let element"> {{element.name}} </td>
+    <!-- Exchange cards -->
+    <div *ngIf="!isLoading && exchanges.length > 0" class="flex flex-col gap-4">
+      <div *ngFor="let ex of exchanges"
+        class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden transition-all duration-200"
+        [class.border-green-300]="ex.testResult?.success === true"
+        [class.border-red-300]="ex.testResult?.success === false">
+
+        <!-- Main row -->
+        <div class="flex items-center gap-4 px-6 py-4">
+
+          <!-- Exchange icon -->
+          <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+            [ngClass]="ex.status === 'Active' ? 'bg-green-50' : 'bg-red-50'">
+            <mat-icon [ngClass]="ex.status === 'Active' ? 'text-green-600' : 'text-red-500'"
+              style="font-size:22px;height:22px;width:22px;">hub</mat-icon>
+          </div>
+
+          <!-- Account info -->
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="font-semibold text-gray-900 truncate">{{ ex.name }}</span>
+              <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                [ngClass]="ex.status === 'Active' ? 'bg-green-100 text-green-700' : ex.status === 'Error' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'">
+                {{ ex.status }}
+              </span>
+            </div>
+            <div class="flex items-center gap-3 mt-0.5 text-xs text-gray-400">
+              <span class="flex items-center gap-1">
+                <mat-icon style="font-size:13px;height:13px;width:13px;">business</mat-icon>
+                {{ ex.exchangeName }}
+              </span>
+              <span class="flex items-center gap-1">
+                <mat-icon style="font-size:13px;height:13px;width:13px;">key</mat-icon>
+                <code class="font-mono">{{ ex.apiKeyPreview }}</code>
+              </span>
+            </div>
+          </div>
+
+          <!-- Action buttons -->
+          <div class="flex items-center gap-2 flex-shrink-0">
+
+            <!-- Test Connection button (shown when not confirming delete) -->
+            <ng-container *ngIf="confirmDeleteId !== ex.id">
+              <button mat-stroked-button
+                (click)="testConnection(ex)"
+                [disabled]="ex.testing"
+                class="text-sm"
+                [ngClass]="ex.testResult?.success ? 'border-green-400 text-green-700' : ex.testResult?.success === false ? 'border-red-400 text-red-700' : ''">
+                <mat-spinner *ngIf="ex.testing" diameter="16" class="inline-block mr-1"></mat-spinner>
+                <mat-icon *ngIf="!ex.testing && !ex.testResult" style="font-size:16px;height:16px;width:16px;" class="mr-1">wifi</mat-icon>
+                <mat-icon *ngIf="!ex.testing && ex.testResult?.success === true" style="font-size:16px;height:16px;width:16px;" class="mr-1 text-green-600">check_circle</mat-icon>
+                <mat-icon *ngIf="!ex.testing && ex.testResult?.success === false" style="font-size:16px;height:16px;width:16px;" class="mr-1 text-red-500">cancel</mat-icon>
+                {{ ex.testing ? 'Testing...' : (ex.testResult ? 'Retest' : 'Test Connection') }}
+              </button>
+
+              <button mat-icon-button color="warn" (click)="requestDelete(ex.id)" title="Disconnect exchange">
+                <mat-icon>delete_outline</mat-icon>
+              </button>
             </ng-container>
 
-            <!-- Exchange Name Column -->
-            <ng-container matColumnDef="exchangeName">
-                <th mat-header-cell *matHeaderCellDef> Exchange </th>
-                <td mat-cell *matCellDef="let element"> {{element.exchangeName}} </td>
+            <!-- Inline confirm delete -->
+            <ng-container *ngIf="confirmDeleteId === ex.id">
+              <span class="text-xs font-semibold text-red-600 mr-1">Disconnect?</span>
+              <button mat-flat-button color="warn" (click)="confirmDelete(ex.id)" style="height:34px;font-size:12px;">
+                <mat-icon style="font-size:14px;height:14px;width:14px;">check</mat-icon> Yes
+              </button>
+              <button mat-button (click)="cancelDelete()" style="height:34px;font-size:12px;">
+                <mat-icon style="font-size:14px;height:14px;width:14px;">close</mat-icon> No
+              </button>
             </ng-container>
+          </div>
+        </div>
 
-            <!-- Status Column -->
-            <ng-container matColumnDef="status">
-                <th mat-header-cell *matHeaderCellDef> Status </th>
-                <td mat-cell *matCellDef="let element">
-                    <span class="px-2 py-1 rounded text-xs"
-                        [ngClass]="{'bg-green-100 text-green-800': element.status === 'Active', 'bg-red-100 text-red-800': element.status !== 'Active'}">
-                        {{element.status}}
-                    </span>
-                </td>
-            </ng-container>
+        <!-- Test result panel (shown after test) -->
+        <div *ngIf="ex.testResult" class="border-t px-6 py-3 flex items-start gap-3 text-sm"
+          [ngClass]="ex.testResult.success ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'">
+          <mat-icon style="font-size:18px;height:18px;width:18px;margin-top:1px;"
+            [ngClass]="ex.testResult.success ? 'text-green-600' : 'text-red-500'">
+            {{ ex.testResult.success ? 'verified' : 'error_outline' }}
+          </mat-icon>
+          <div class="flex-1">
+            <p [ngClass]="ex.testResult.success ? 'text-green-800' : 'text-red-700'" class="font-medium">
+              {{ ex.testResult.message }}
+            </p>
+            <p *ngIf="ex.testResult.success && ex.testResult.walletBalance !== undefined"
+              class="text-green-600 text-xs mt-0.5">
+              Wallet Balance: <strong>{{ ex.testResult.walletBalance | number:'1.2-2' }} {{ ex.testResult.currency }}</strong>
+              (Testnet)
+            </p>
+          </div>
+        </div>
 
-            <!-- API Key Column -->
-            <ng-container matColumnDef="apiKey">
-                <th mat-header-cell *matHeaderCellDef> API Key </th>
-                <td mat-cell *matCellDef="let element" class="font-mono text-xs text-gray-600">
-                    {{element.apiKeyPreview}} </td>
-            </ng-container>
-
-            <!-- Actions Column -->
-            <ng-container matColumnDef="actions">
-                <th mat-header-cell *matHeaderCellDef> Actions </th>
-                <td mat-cell *matCellDef="let element">
-                    <button mat-icon-button color="warn" (click)="deleteExchange(element.id)">
-                        <mat-icon>delete</mat-icon>
-                    </button>
-                </td>
-            </ng-container>
-
-            <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-            <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
-        </table>
+      </div>
     </div>
+
+  </div>
 </div>

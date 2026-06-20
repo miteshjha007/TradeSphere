@@ -35,17 +35,49 @@ namespace TradeSphere.API.Controllers
         [HttpPost]
         public async Task<IActionResult> ConnectExchange([FromBody] ConnectExchangeDto dto)
         {
-            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-            var result = await _exchangeService.ConnectExchangeAsync(userId, dto);
-            return Ok(result);
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+                var result = await _exchangeService.ConnectExchangeAsync(userId, dto);
+                return Ok(result);
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteExchange(int id)
         {
-            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-            await _exchangeService.DeleteUserExchangeAsync(userId, id);
-            return NoContent();
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+                await _exchangeService.DeleteUserExchangeAsync(userId, id);
+                return NoContent();
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("{id}/test-connection")]
+        public async Task<IActionResult> TestConnection(int id)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+                var result = await _exchangeService.TestConnectionAsync(userId, id);
+                if (result.Success)
+                    return Ok(result);
+                else
+                    return BadRequest(result);
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
         }
     }
 }

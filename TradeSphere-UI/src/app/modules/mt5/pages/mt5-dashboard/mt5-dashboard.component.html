@@ -1,0 +1,199 @@
+<div class="min-h-full bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
+  <div class="mx-auto w-full max-w-7xl space-y-6">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">MT5 Accounts</h1>
+        <p class="mt-1 text-sm text-gray-500">Connect MT5 demo/live accounts and map broker symbols for strategy execution.</p>
+      </div>
+      <div class="inline-flex w-fit items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+        <mat-icon class="text-amber-600" style="font-size:18px;height:18px;width:18px;">construction</mat-icon>
+        Bridge status: <strong>Pending integration</strong>
+      </div>
+    </div>
+
+    <div *ngIf="errorMessage" class="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      <mat-icon>error_outline</mat-icon>
+      <span class="flex-1">{{ errorMessage }}</span>
+      <button mat-icon-button (click)="errorMessage = null"><mat-icon>close</mat-icon></button>
+    </div>
+
+    <mat-tab-group mat-stretch-tabs="false" animationDuration="150ms">
+      <mat-tab label="Accounts">
+        <div class="grid grid-cols-1 gap-6 pt-6 xl:grid-cols-[420px_1fr]">
+          <form [formGroup]="accountForm" class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+            <div class="mb-5">
+              <h2 class="text-lg font-semibold text-gray-900">Add MT5 Account</h2>
+              <p class="mt-1 text-xs text-gray-500">Password is encrypted before saving.</p>
+            </div>
+
+            <div class="space-y-4">
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Account Name</span>
+                <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="name" placeholder="FundingPips Demo">
+              </label>
+
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">MT5 Login</span>
+                <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" type="number" formControlName="login" placeholder="12345678">
+              </label>
+
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Broker Server</span>
+                <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="server" placeholder="FundingPips-Server">
+              </label>
+
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Password</span>
+                <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" type="password" formControlName="password">
+              </label>
+
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label class="block">
+                  <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Type</span>
+                  <select class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="accountType">
+                    <option value="Demo">Demo</option>
+                    <option value="Live">Live</option>
+                    <option value="PropFirm">Prop Firm</option>
+                  </select>
+                </label>
+
+                <label class="block">
+                  <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Currency</span>
+                  <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="currency">
+                </label>
+              </div>
+
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Leverage</span>
+                <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" type="number" formControlName="leverage">
+              </label>
+
+              <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                <mat-slide-toggle formControlName="tradingEnabled">Enable live trading</mat-slide-toggle>
+              </div>
+
+              <button mat-raised-button color="primary" type="button" class="w-full" [disabled]="isSavingAccount" (click)="connectAccount()">
+                <mat-spinner *ngIf="isSavingAccount" diameter="16" class="inline-block mr-2"></mat-spinner>
+                Save MT5 Account
+              </button>
+            </div>
+          </form>
+
+          <div class="min-w-0 space-y-4">
+            <div *ngIf="isLoading" class="flex justify-center rounded-2xl bg-white p-12 shadow-sm">
+              <mat-spinner diameter="40"></mat-spinner>
+            </div>
+
+            <div *ngIf="!isLoading && accounts.length === 0" class="rounded-2xl border border-dashed border-gray-200 bg-white p-12 text-center shadow-sm">
+              <mat-icon class="text-gray-300" style="font-size:48px;height:48px;width:48px;">monitoring</mat-icon>
+              <h3 class="mt-3 font-semibold text-gray-800">No MT5 accounts added</h3>
+              <p class="mt-1 text-sm text-gray-500">Add a demo or prop firm MT5 account to prepare automated execution.</p>
+            </div>
+
+            <div *ngFor="let account of accounts" class="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+              <div class="flex flex-col gap-4 p-5 md:flex-row md:items-center">
+                <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-blue-50">
+                  <mat-icon class="text-blue-600">monitoring</mat-icon>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="font-semibold text-gray-900">{{ account.name }}</h3>
+                    <span class="rounded-full px-2 py-0.5 text-xs font-medium"
+                      [ngClass]="account.status === 'Connected' ? 'bg-green-100 text-green-700' : account.status === 'Error' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'">
+                      {{ account.status }}
+                    </span>
+                    <span *ngIf="account.tradingEnabled" class="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">Live trading enabled</span>
+                  </div>
+                  <div class="mt-1 text-xs text-gray-500">
+                    Login {{ account.loginPreview }} - {{ account.server }} - {{ account.accountType }} - {{ account.currency }} - 1:{{ account.leverage || 0 }}
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button mat-stroked-button (click)="testConnection(account)" [disabled]="account.testing">
+                    <mat-spinner *ngIf="account.testing" diameter="16" class="inline-block mr-1"></mat-spinner>
+                    Test
+                  </button>
+                  <button mat-icon-button color="warn" (click)="deleteAccount(account.id)">
+                    <mat-icon>delete_outline</mat-icon>
+                  </button>
+                </div>
+              </div>
+
+              <div *ngIf="account.testResult" class="border-t px-5 py-3 text-sm"
+                [ngClass]="account.testResult.success ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800'">
+                {{ account.testResult.message }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </mat-tab>
+
+      <mat-tab label="Symbol Mapping">
+        <div class="grid grid-cols-1 gap-6 pt-6 xl:grid-cols-[420px_1fr]">
+          <form [formGroup]="mappingForm" class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+            <div class="mb-5">
+              <h2 class="text-lg font-semibold text-gray-900">Map Symbols</h2>
+              <p class="mt-1 text-xs text-gray-500">Use this when broker symbols have suffixes like BTCUSDm or XAUUSD.r.</p>
+            </div>
+
+            <div class="space-y-4">
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">MT5 Account</span>
+                <select class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="mt5AccountId">
+                  <option *ngFor="let account of accounts" [ngValue]="account.id">{{ account.name }}</option>
+                </select>
+              </label>
+
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Strategy Symbol</span>
+                <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="strategySymbol" placeholder="BTCUSD">
+              </label>
+
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Broker Symbol</span>
+                <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="brokerSymbol" placeholder="BTCUSDm">
+              </label>
+
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Notes</span>
+                <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="notes">
+              </label>
+
+              <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                <mat-slide-toggle formControlName="isActive">Active mapping</mat-slide-toggle>
+              </div>
+
+              <button mat-raised-button color="primary" type="button" class="w-full" [disabled]="isSavingMapping || accounts.length === 0" (click)="saveMapping()">
+                Save Mapping
+              </button>
+            </div>
+          </form>
+
+          <div class="min-w-0 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div class="hidden grid-cols-5 gap-3 bg-gray-50 px-5 py-3 text-xs font-semibold uppercase text-gray-500 md:grid">
+              <span>Account</span>
+              <span>Strategy</span>
+              <span>Broker</span>
+              <span>Status</span>
+              <span class="text-right">Action</span>
+            </div>
+            <div *ngFor="let mapping of mappings" class="grid grid-cols-1 gap-2 border-t px-5 py-4 text-sm md:grid-cols-5 md:items-center">
+              <span class="font-medium text-gray-900">{{ mapping.accountName }}</span>
+              <span>{{ mapping.strategySymbol }}</span>
+              <span>{{ mapping.brokerSymbol }}</span>
+              <span [ngClass]="mapping.isActive ? 'text-green-600' : 'text-gray-400'">{{ mapping.isActive ? 'Active' : 'Disabled' }}</span>
+              <span class="md:text-right">
+                <button mat-icon-button color="warn" (click)="deleteMapping(mapping.id)">
+                  <mat-icon>delete_outline</mat-icon>
+                </button>
+              </span>
+            </div>
+            <div *ngIf="mappings.length === 0" class="p-10 text-center text-sm text-gray-500">
+              No symbol mappings yet.
+            </div>
+          </div>
+        </div>
+      </mat-tab>
+    </mat-tab-group>
+  </div>
+</div>

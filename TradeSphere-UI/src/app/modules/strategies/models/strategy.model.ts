@@ -14,6 +14,9 @@ export interface UserStrategy {
     strategyName: string;
     exchangeId: number;
     exchangeName: string;
+    executionProvider: string;
+    mt5AccountId?: number;
+    mt5AccountName?: string;
     symbol: string;
     config: string;
     status: string;
@@ -22,7 +25,9 @@ export interface UserStrategy {
 
 export interface DeployStrategyDto {
     strategyId: number;
-    exchangeId: number;
+    executionProvider: string;
+    userExchangeId?: number;
+    mt5AccountId?: number;
     symbol: string;
     config: string;
 }

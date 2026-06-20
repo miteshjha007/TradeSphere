@@ -1,0 +1,195 @@
+<div class="min-h-full bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
+  <div class="mx-auto w-full max-w-7xl space-y-6">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">Prop Firms</h1>
+      <p class="mt-1 text-sm text-gray-500">Track funded challenges, MT5 links, risk limits, and rule guardrails.</p>
+    </div>
+
+    <div *ngIf="errorMessage" class="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      <mat-icon>error_outline</mat-icon>
+      <span class="flex-1">{{ errorMessage }}</span>
+      <button mat-icon-button (click)="errorMessage = null"><mat-icon>close</mat-icon></button>
+    </div>
+
+    <mat-tab-group mat-stretch-tabs="false" animationDuration="150ms">
+      <mat-tab label="Challenge Accounts">
+        <div class="grid grid-cols-1 gap-6 pt-6 xl:grid-cols-[420px_1fr]">
+          <form [formGroup]="accountForm" (ngSubmit)="createAccount()" class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+            <div class="mb-5">
+              <h2 class="text-lg font-semibold text-gray-900">Add Challenge</h2>
+              <p class="mt-1 text-xs text-gray-500">Link this challenge to an MT5 account when available.</p>
+            </div>
+
+            <div class="space-y-4">
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Prop Firm</span>
+                <select class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="propFirmId">
+                  <option *ngFor="let firm of firms" [ngValue]="firm.id">{{ firm.name }}</option>
+                </select>
+              </label>
+
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Linked MT5 Account</span>
+                <select class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="mt5AccountId">
+                  <option [ngValue]="null">Not linked yet</option>
+                  <option *ngFor="let account of mt5Accounts" [ngValue]="account.id">{{ account.name }}</option>
+                </select>
+              </label>
+
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Challenge Name</span>
+                <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="name">
+              </label>
+
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label class="block">
+                  <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Account Size</span>
+                  <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" type="number" formControlName="accountSize">
+                </label>
+                <label class="block">
+                  <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Profit Target</span>
+                  <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" type="number" formControlName="profitTarget">
+                </label>
+              </div>
+
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label class="block">
+                  <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Daily Drawdown</span>
+                  <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" type="number" formControlName="dailyDrawdownLimit">
+                </label>
+                <label class="block">
+                  <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Max Drawdown</span>
+                  <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" type="number" formControlName="maxDrawdownLimit">
+                </label>
+              </div>
+
+              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label class="block">
+                  <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Min Trading Days</span>
+                  <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" type="number" formControlName="minimumTradingDays">
+                </label>
+                <label class="block">
+                  <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Risk/Trade %</span>
+                  <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" type="number" formControlName="maxRiskPerTradePercent">
+                </label>
+              </div>
+
+              <div class="space-y-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                <mat-slide-toggle formControlName="newsTradingAllowed">News trading allowed</mat-slide-toggle>
+                <mat-slide-toggle formControlName="weekendHoldingAllowed">Weekend holding allowed</mat-slide-toggle>
+              </div>
+
+              <button mat-raised-button color="primary" type="submit" class="w-full" [disabled]="isSavingAccount || firms.length === 0">
+                Save Challenge
+              </button>
+            </div>
+          </form>
+
+          <div class="min-w-0 space-y-4">
+            <div *ngIf="isLoading" class="flex justify-center rounded-2xl bg-white p-12 shadow-sm">
+              <mat-spinner diameter="40"></mat-spinner>
+            </div>
+
+            <div *ngIf="!isLoading && accounts.length === 0" class="rounded-2xl border border-dashed border-gray-200 bg-white p-12 text-center shadow-sm">
+              <mat-icon class="text-gray-300" style="font-size:48px;height:48px;width:48px;">workspace_premium</mat-icon>
+              <h3 class="mt-3 font-semibold text-gray-800">No prop challenge added</h3>
+              <p class="mt-1 text-sm text-gray-500">Create a firm first, then add its challenge rules.</p>
+            </div>
+
+            <div *ngFor="let account of accounts" class="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+              <div class="flex flex-col gap-4 md:flex-row md:items-start">
+                <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50">
+                  <mat-icon class="text-indigo-600">workspace_premium</mat-icon>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="font-semibold text-gray-900">{{ account.name }}</h3>
+                    <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">{{ account.status }}</span>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500">
+                    {{ account.propFirmName }} - {{ account.mt5AccountName || 'No MT5 linked' }}
+                  </p>
+                </div>
+                <button mat-icon-button color="warn" (click)="deleteAccount(account.id)">
+                  <mat-icon>delete_outline</mat-icon>
+                </button>
+              </div>
+
+              <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <div class="rounded-xl bg-gray-50 p-3">
+                  <div class="text-xs text-gray-500">Account Size</div>
+                  <div class="font-semibold">{{ account.accountSize | currency:'USD' }}</div>
+                </div>
+                <div class="rounded-xl bg-gray-50 p-3">
+                  <div class="text-xs text-gray-500">Profit Target</div>
+                  <div class="font-semibold text-green-700">{{ account.profitTarget | currency:'USD' }}</div>
+                </div>
+                <div class="rounded-xl bg-gray-50 p-3">
+                  <div class="text-xs text-gray-500">Daily DD</div>
+                  <div class="font-semibold text-red-600">{{ account.dailyDrawdownLimit | currency:'USD' }}</div>
+                </div>
+                <div class="rounded-xl bg-gray-50 p-3">
+                  <div class="text-xs text-gray-500">Max DD</div>
+                  <div class="font-semibold text-red-600">{{ account.maxDrawdownLimit | currency:'USD' }}</div>
+                </div>
+                <div class="rounded-xl bg-gray-50 p-3">
+                  <div class="text-xs text-gray-500">Risk/Trade</div>
+                  <div class="font-semibold">{{ account.maxRiskPerTradePercent }}%</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </mat-tab>
+
+      <mat-tab label="Firms">
+        <div class="grid grid-cols-1 gap-6 pt-6 xl:grid-cols-[420px_1fr]">
+          <form [formGroup]="firmForm" (ngSubmit)="createFirm()" class="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+            <div class="mb-5">
+              <h2 class="text-lg font-semibold text-gray-900">Add Prop Firm</h2>
+              <p class="mt-1 text-xs text-gray-500">FundingPips, FTMO, The5ers, or any MT5-based prop firm.</p>
+            </div>
+
+            <div class="space-y-4">
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Name</span>
+                <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="name">
+              </label>
+
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Website</span>
+                <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="websiteUrl" placeholder="https://fundingpips.com">
+              </label>
+
+              <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Notes</span>
+                <input class="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" formControlName="notes">
+              </label>
+
+              <button mat-raised-button color="primary" type="submit" class="w-full" [disabled]="isSavingFirm">Save Firm</button>
+            </div>
+          </form>
+
+          <div class="min-w-0 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+            <div *ngFor="let firm of firms" class="flex flex-col gap-4 border-b px-5 py-4 md:flex-row md:items-center">
+              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-blue-50">
+                <mat-icon class="text-blue-600">business_center</mat-icon>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="font-semibold text-gray-900">{{ firm.name }}</div>
+                <div class="text-xs text-gray-500">{{ firm.websiteUrl || 'No website' }}</div>
+              </div>
+              <span class="w-fit rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">{{ firm.status }}</span>
+              <button mat-icon-button color="warn" (click)="deleteFirm(firm.id)">
+                <mat-icon>delete_outline</mat-icon>
+              </button>
+            </div>
+            <div *ngIf="firms.length === 0" class="p-10 text-center text-sm text-gray-500">
+              No prop firms added yet.
+            </div>
+          </div>
+        </div>
+      </mat-tab>
+    </mat-tab-group>
+  </div>
+</div>

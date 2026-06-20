@@ -13,10 +13,12 @@ namespace TradeSphere.Infrastructure.Services
     public class ExchangeService : IExchangeService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IDeltaExchangeClient _deltaClient;
 
-        public ExchangeService(ApplicationDbContext context)
+        public ExchangeService(ApplicationDbContext context, IDeltaExchangeClient deltaClient)
         {
             _context = context;
+            _deltaClient = deltaClient;
         }
 
         public async Task<List<ExchangeDto>> GetSupportedExchangesAsync()
@@ -89,6 +91,39 @@ namespace TradeSphere.Infrastructure.Services
             {
                 _context.UserExchanges.Remove(entity);
                 await _context.SaveChangesAsync();
+            }
+        }
+
+        public async Task<ConnectionTestResult> TestConnectionAsync(int userId, int userExchangeId)
+        {
+            var userExchange = await _context.UserExchanges
+                .Include(ue => ue.Exchange)
+                .FirstOrDefaultAsync(ue => ue.Id == userExchangeId && ue.UserId == userId);
+
+            if (userExchange == null)
+            {
+                return new ConnectionTestResult
+                {
+                    Success = false,
+                    Message = "Exchange connection not found."
+                };
+            }
+
+            try
+            {
+                var apiKey = EncryptionHelper.Decrypt(userExchange.ApiKey);
+                var apiSecret = EncryptionHelper.Decrypt(userExchange.ApiSecret);
+
+                var result = await _deltaClient.TestConnectionAsync(apiKey, apiSecret, userExchange.Exchange?.BaseUrl);
+                return result;
+            }
+            catch (System.Exception ex)
+            {
+                return new ConnectionTestResult
+                {
+                    Success = false,
+                    Message = $"Connection failed: {ex.Message}"
+                };
             }
         }
 

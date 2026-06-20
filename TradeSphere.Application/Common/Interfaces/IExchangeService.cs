@@ -10,5 +10,6 @@ namespace TradeSphere.Application.Common.Interfaces
         Task<List<UserExchangeDto>> GetUserExchangesAsync(int userId);
         Task<UserExchangeDto> ConnectExchangeAsync(int userId, ConnectExchangeDto dto);
         Task DeleteUserExchangeAsync(int userId, int userExchangeId);
+        Task<ConnectionTestResult> TestConnectionAsync(int userId, int userExchangeId);
     }
 }

@@ -1,0 +1,302 @@
+// This Pine Script™ source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © HA-EMA Directional Bias Strategy
+
+//@version=5
+strategy("HA-EMA Directional Bias Strategy", shorttitle="HA-EMA DB", overlay=true, max_bars_back=500, default_qty_type=strategy.percent_of_equity, default_qty_value=100, pyramiding=0, calc_on_every_tick=false, process_orders_on_close=true)
+
+// ============================================================
+// TABLE OF CONTENTS
+// ============================================================
+// 1. User Inputs
+// 2. Daily Trend Filter (Heikin Ashi)
+// 3. EMA Channel on Intraday Chart
+// 4. Session Time Filter
+// 5. Bias Determination
+// 6. Entry Logic
+// 7. Exit Logic (Band-Based + Risk-Reward)
+// 8. Intraday Square-Off
+// 9. Visual Plotting
+// ============================================================
+
+// ============================================================
+// 1. USER INPUTS
+// ============================================================
+
+// --- EMA Settings ---
+emaLength        = input.int(34,      title="EMA Length",                   minval=1,                  group="EMA Settings")
+
+// --- Intraday Session ---
+sessionStart     = input.session("0915-1515", title="Trading Session (IST)", group="Session Settings")
+
+// --- Square-Off using integer inputs (avoids type mismatch with session strings) ---
+squareOffHour   = input.int(15, title="Square-Off Hour (24h)", group="Session Settings")
+squareOffMinute = input.int(15, title="Square-Off Minute",      group="Session Settings")
+
+// --- Daily Timeframe ---
+dailyTimeframe   = input.timeframe("D",  title="Daily Timeframe for HA Bias", group="Trend Filter")
+
+// --- Exit Mode ---
+exitMode         = input.string("Band-Based Exit", title="Exit Mode", options=["Band-Based Exit", "Fixed Risk-Reward Exit"], group="Exit Settings")
+
+// --- Risk-Reward ---
+rrRatio          = input.float(2.0,     title="Risk : Reward Ratio (e.g. 2 = 1:2)", minval=0.5, maxval=10.0, step=0.5, group="Exit Settings")
+
+// --- Trade Management ---
+useATRSL         = input.bool(false,    title="Use ATR-Based Stop Loss?",     group="Trade Management")
+atrLength        = input.int(14,        title="ATR Length",                    minval=1,   group="Trade Management")
+atrMultiplier    = input.float(1.5,     title="ATR Multiplier for SL",         minval=0.5, group="Trade Management")
+
+// --- Visual Settings ---
+showBiasLabel    = input.bool(true,     title="Show Bias Label on Chart",      group="Visual Settings")
+showEMAChannel   = input.bool(true,     title="Show EMA Channel Fill",         group="Visual Settings")
+showTradeMarkers  = input.bool(true,     title="Show Entry/Exit Markers",       group="Visual Settings")
+
+// ============================================================
+// 2. DAILY TREND FILTER (HEIKIN ASHI)
+// ============================================================
+
+// Fetch Daily Heikin Ashi OHLC data
+// We use ticker.heikinashi to get HA candle data from the daily timeframe.
+// barmerge.lookahead_off ensures no future data leakage (no repainting).
+// We reference the previous bar's close [1] to get YESTERDAY's daily HA candle.
+
+haTicker         = ticker.heikinashi(syminfo.tickerid)
+[haOpen, haHigh, haLow, haClose] = request.security(haTicker, dailyTimeframe, [open, high, low, close], barmerge.gaps_off, barmerge.lookahead_off)
+
+// Previous Daily HA candle (yesterday's daily candle)
+prevHAOpen       = haOpen[1]
+prevHAClose      = haClose[1]
+
+// Determine daily bias from the PREVIOUS day's Heikin Ashi candle
+// Bullish: Green candle (Close > Open) -> Long only today
+// Bearish: Red candle (Close < Open) -> Short only today
+// Doji/Neutral: No directional bias
+isDailyBullish   = prevHAClose > prevHAOpen
+isDailyBearish   = prevHAClose < prevHAOpen
+
+// ============================================================
+// 3. EMA CHANNEL ON INTRADAY CHART
+// ============================================================
+
+// Upper Band: 34-period EMA applied to High price
+// Lower Band: 34-period EMA applied to Low price
+emaHigh = ta.ema(high, emaLength)
+emaLow  = ta.ema(low,  emaLength)
+
+// ============================================================
+// 4. SESSION TIME FILTER
+// ============================================================
+
+// Check if current bar is within the defined trading session
+isInSession = not na(time(timeframe.period, sessionStart))
+
+// Square-off detection using integer hour/minute inputs
+// This avoids the type mismatch error from using input.session in math operations
+currentHour     = hour(time, syminfo.timezone)
+currentMinute   = minute(time, syminfo.timezone)
+currentTimeVal  = currentHour * 60 + currentMinute
+squareOffVal    = squareOffHour * 60 + squareOffMinute
+
+isPastSquareOff = currentTimeVal >= squareOffVal
+
+// ============================================================
+// 5. BIAS DETERMINATION
+// ============================================================
+
+// Bias state variables
+var int dailyBias = 0  // 1 = Bullish (Long Only), -1 = Bearish (Short Only), 0 = Neutral
+
+// Update bias only at the start of a new day to avoid intra-day flip
+if ta.change(time(dailyTimeframe))
+    if isDailyBullish
+        dailyBias := 1
+    else if isDailyBearish
+        dailyBias := -1
+    else
+        dailyBias := 0
+
+// ============================================================
+// 6. ENTRY LOGIC
+// ============================================================
+
+// Crossover / Crossunder conditions for EMA bands
+crossAboveUpper  = ta.crossover(close, emaHigh)   // Close crosses above Upper Band
+crossBelowLower  = ta.crossover(emaLow, close)     // Close crosses below Lower Band
+
+// Entry conditions combining bias + EMA breakout + session filter
+longEntryCond    = (dailyBias == 1) and crossAboveUpper and isInSession and not isPastSquareOff
+shortEntryCond   = (dailyBias == -1) and crossBelowLower and isInSession and not isPastSquareOff
+
+// ATR-based stop loss calculation
+atrValue         = ta.atr(atrLength)
+
+// Track entry price and risk for Risk-Reward exit calculations
+var float entryPrice      = na
+var float slPrice         = na
+var float tpPrice         = na
+var float riskAmount      = na
+var int   currentPosition = 0  // 0=flat, 1=long, -1=short
+
+// ============================================================
+// 7. EXIT LOGIC (BAND-BASED + RISK-REWARD)
+// ============================================================
+
+// Band-based exit conditions
+longBandExit     = close < emaLow       // Long exit when close drops below Lower Band
+shortBandExit    = close > emaHigh      // Short exit when close rises above Upper Band
+
+// --- Execute Entries ---
+if longEntryCond and currentPosition == 0
+    strategy.entry("Long", strategy.long)
+    entryPrice      := close
+    currentPosition := 1
+
+    if exitMode == "Fixed Risk-Reward Exit"
+        if useATRSL
+            slPrice    := close - (atrMultiplier * atrValue)
+        else
+            slPrice    := emaLow  // Use the lower band as the reference for SL
+        riskAmount  := entryPrice - slPrice
+        riskAmount  := riskAmount > 0 ? riskAmount : (atrValue * atrMultiplier)  // Fallback if risk is zero/negative
+        tpPrice     := entryPrice + (riskAmount * rrRatio)
+        strategy.exit("Long RR Exit", "Long", stop=slPrice, limit=tpPrice)
+
+if shortEntryCond and currentPosition == 0
+    strategy.entry("Short", strategy.short)
+    entryPrice      := close
+    currentPosition := -1
+
+    if exitMode == "Fixed Risk-Reward Exit"
+        if useATRSL
+            slPrice    := close + (atrMultiplier * atrValue)
+        else
+            slPrice    := emaHigh  // Use the upper band as the reference for SL
+        riskAmount  := slPrice - entryPrice
+        riskAmount  := riskAmount > 0 ? riskAmount : (atrValue * atrMultiplier)
+        tpPrice     := entryPrice - (riskAmount * rrRatio)
+        strategy.exit("Short RR Exit", "Short", stop=slPrice, limit=tpPrice)
+
+// --- Execute Band-Based Exits ---
+if currentPosition == 1 and exitMode == "Band-Based Exit" and longBandExit
+    strategy.close("Long", comment="Band Exit Long")
+    currentPosition := 0
+    entryPrice      := na
+    slPrice         := na
+    tpPrice         := na
+    riskAmount      := na
+
+if currentPosition == -1 and exitMode == "Band-Based Exit" and shortBandExit
+    strategy.close("Short", comment="Band Exit Short")
+    currentPosition := 0
+    entryPrice      := na
+    slPrice         := na
+    tpPrice         := na
+    riskAmount      := na
+
+// --- Risk-Reward Exit: Handle stop/limit fill tracking ---
+// When using strategy.exit with stop/limit, Pine auto-closes the position.
+// We need to detect when the position is closed to reset our state.
+if currentPosition == 1 and strategy.position_size == 0
+    currentPosition := 0
+    entryPrice      := na
+    slPrice         := na
+    tpPrice         := na
+    riskAmount      := na
+
+if currentPosition == -1 and strategy.position_size == 0
+    currentPosition := 0
+    entryPrice      := na
+    slPrice         := na
+    tpPrice         := na
+    riskAmount      := na
+
+// ============================================================
+// 8. INTRADAY SQUARE-OFF
+// ============================================================
+
+// Close ALL positions at the configured square-off time to avoid overnight risk
+if isPastSquareOff and isInSession
+    if currentPosition == 1
+        strategy.close("Long", comment="Square-Off")
+        currentPosition := 0
+        entryPrice      := na
+        slPrice         := na
+        tpPrice         := na
+        riskAmount      := na
+    if currentPosition == -1
+        strategy.close("Short", comment="Square-Off")
+        currentPosition := 0
+        entryPrice      := na
+        slPrice         := na
+        tpPrice         := na
+        riskAmount      := na
+
+// Also force-close via strategy for safety (in case internal state drifts)
+if isPastSquareOff and isInSession
+    strategy.close_all(comment="EOD Square-Off")
+
+// ============================================================
+// 9. VISUAL PLOTTING
+// ============================================================
+
+// --- EMA Channel ---
+plot(showEMAChannel ? emaHigh : na, "EMA High (Upper Band)", color=color.new(color.teal, 0), linewidth=2)
+plot(showEMAChannel ? emaLow  : na, "EMA Low (Lower Band)",  color=color.new(color.orange, 0), linewidth=2)
+
+// Channel fill between the two EMAs
+p1 = plot(showEMAChannel ? emaHigh : na, display=display.none)
+p2 = plot(showEMAChannel ? emaLow  : na, display=display.none)
+fill(p1, p2, color=color.new(color.purple, 90), title="EMA Channel Fill")
+
+// --- Bias Label on Chart ---
+biasText  = dailyBias == 1 ? "BULLISH BIAS (Long Only)" : dailyBias == -1 ? "BEARISH BIAS (Short Only)" : "NEUTRAL (No Trade)"
+biasColor = dailyBias == 1 ? color.green : dailyBias == -1 ? color.red : color.gray
+
+if showBiasLabel
+    var label biasLabel = na
+    label.delete(biasLabel)
+    biasLabel := label.new(
+         x          = bar_index,
+         y          = high,
+         text       = biasText,
+         xloc       = xloc.bar_index,
+         yloc       = yloc.abovebar,
+         color      = color.new(biasColor, 30),
+         style      = label.style_label_down,
+         textcolor  = color.white,
+         size       = size.normal,
+         textalign  = text.align_center)
+
+// --- Entry / Exit Markers ---
+if showTradeMarkers
+    // Long entry marker
+    if longEntryCond and strategy.position_size > 0
+        label.new(bar_index, low, "L", style=label.style_label_up, color=color.green, textcolor=color.white, size=size.tiny)
+    // Short entry marker
+    if shortEntryCond and strategy.position_size < 0
+        label.new(bar_index, high, "S", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.tiny)
+
+// --- Info Table (Top-Right) ---
+var table infoTable = table.new(position.top_right, 2, 7, bgcolor=color.new(color.black, 70), border_width=1, border_color=color.new(color.gray, 50))
+
+if barstate.islast
+    table.cell(infoTable, 0, 0, "Parameter",         text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 50))
+    table.cell(infoTable, 1, 0, "Value",              text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 50))
+    table.cell(infoTable, 0, 1, "Daily Bias",         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 1, biasText,             text_color=biasColor,   text_size=size.small)
+    table.cell(infoTable, 0, 2, "EMA Length",         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 2, str.tostring(emaLength), text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 0, 3, "Exit Mode",          text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 3, exitMode,             text_color=color.yellow, text_size=size.small)
+    table.cell(infoTable, 0, 4, "R:R Ratio",          text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 4, "1:" + str.tostring(rrRatio), text_color=color.yellow, text_size=size.small)
+    table.cell(infoTable, 0, 5, "Square-Off",         text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 5, str.tostring(squareOffHour, "#") + ":" + (squareOffMinute < 10 ? "0" : "") + str.tostring(squareOffMinute, "#"), text_color=color.orange, text_size=size.small)
+    table.cell(infoTable, 0, 6, "ATR SL",             text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 6, useATRSL ? "ON (" + str.tostring(atrMultiplier, "#.#") + "x)" : "OFF", text_color=useATRSL ? color.green : color.gray, text_size=size.small)
+
+// --- Alert Conditions ---
+alertcondition(longEntryCond,  title="Long Entry Signal",  message="HA-EMA Strategy: LONG entry triggered. Close crossed above Upper EMA Band with Bullish Daily Bias.")
+alertcondition(shortEntryCond, title="Short Entry Signal", message="HA-EMA Strategy: SHORT entry triggered. Close crossed below Lower EMA Band with Bearish Daily Bias.")
+alertcondition(longBandExit,   title="Long Band Exit",     message="HA-EMA Strategy: LONG band exit triggered. Close dropped below Lower EMA Band.")
+alertcondition(shortBandExit,  title="Short Band Exit",    message="HA-EMA Strategy: SHORT band exit triggered. Close rose above Upper EMA Band.")

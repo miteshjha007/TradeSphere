@@ -22,5 +22,7 @@ namespace TradeSphere.Domain.Entities
         public DateTime? ExecutedAt { get; set; }
         public decimal Pnl { get; set; }
         public string ExternalOrderId { get; set; }
+        public string? ErrorReason { get; set; }
+        public string? BrokerResponse { get; set; }
     }
 }

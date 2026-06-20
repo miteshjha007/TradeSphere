@@ -8,8 +8,18 @@ export interface DashboardData {
   totalPnl: number;
   activeStrategies: number;
   connectedExchanges: number;
-  recentTrades: any[];
+  recentTrades: RecentTrade[];
   topStrategies: any[];
+}
+
+export interface RecentTrade {
+  symbol: string;
+  side: string;
+  price: number;
+  quantity: number;
+  status: string;
+  errorReason?: string;
+  timeAgo: string;
 }
 
 @Injectable({

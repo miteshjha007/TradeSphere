@@ -35,9 +35,16 @@ namespace TradeSphere.API.Controllers
         [HttpPost("deploy")]
         public async Task<IActionResult> DeployStrategy([FromBody] DeployStrategyDto dto)
         {
-            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-            var result = await _strategyService.DeployStrategyAsync(userId, dto);
-            return Ok(result);
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+                var result = await _strategyService.DeployStrategyAsync(userId, dto);
+                return Ok(result);
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         [HttpPost("create")]
@@ -51,17 +58,31 @@ namespace TradeSphere.API.Controllers
         [HttpPatch("{id}/status")]
         public async Task<IActionResult> ToggleStatus(int id, [FromBody] string status)
         {
-            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-            await _strategyService.ToggleStrategyStatusAsync(userId, id, status);
-            return NoContent();
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+                await _strategyService.ToggleStrategyStatusAsync(userId, id, status);
+                return NoContent();
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteStrategy(int id)
         {
-            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-            await _strategyService.DeleteUserStrategyAsync(userId, id);
-            return NoContent();
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+                await _strategyService.DeleteUserStrategyAsync(userId, id);
+                return NoContent();
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
     }
 }

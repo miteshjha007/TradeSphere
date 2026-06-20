@@ -9,6 +9,7 @@
                 <div>
                     <p class="text-gray-500 text-sm">Total Balance</p>
                     <p class="text-2xl font-bold">${{ data.totalBalance | number:'1.2-2' }}</p>
+                    <p class="text-xs text-gray-400">Wallet integration pending</p>
                 </div>
             </mat-card-content>
         </mat-card>
@@ -75,7 +76,7 @@
                                 <td class="py-3 text-right font-bold text-green-600">+${{ strategy.pnl }}</td>
                             </tr>
                             <tr *ngIf="data.topStrategies.length === 0">
-                                <td colspan="3" class="py-4 text-center text-gray-500">No active strategies yet.</td>
+                                <td colspan="3" class="py-4 text-center text-gray-500">No real filled strategy trades yet.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -93,19 +94,20 @@
                     <div *ngFor="let trade of data.recentTrades"
                         class="flex items-center justify-between p-2 rounded hover:bg-gray-50">
                         <div class="flex items-center">
-                            <div [class]="trade.side === 'Buy' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'"
+                            <div [class]="trade.status === 'Failed' ? 'bg-red-100 text-red-600' : trade.side === 'Buy' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'"
                                 class="p-2 rounded-full mr-3">
-                                <mat-icon class="text-sm font-bold">{{ trade.side === 'Buy' ? 'arrow_upward' :
-                                    'arrow_downward' }}</mat-icon>
+                                <mat-icon class="text-sm font-bold">{{ trade.status === 'Failed' ? 'error' : trade.side === 'Buy' ? 'arrow_upward' : 'arrow_downward' }}</mat-icon>
                             </div>
                             <div>
                                 <p class="font-medium text-sm">{{ trade.symbol }}</p>
-                                <p class="text-xs text-gray-500">{{ trade.timeAgo }}</p>
+                                <p class="text-xs" [ngClass]="trade.status === 'Failed' ? 'text-red-600' : 'text-gray-500'">
+                                    {{ trade.status === 'Failed' ? (trade.errorReason || 'Order failed') : trade.timeAgo }}
+                                </p>
                             </div>
                         </div>
                         <div class="text-right">
                             <p class="text-sm font-semibold">${{ trade.price }}</p>
-                            <p class="text-xs text-gray-500">{{ trade.quantity }} units</p>
+                            <p class="text-xs text-gray-500">{{ trade.status }} · {{ trade.quantity }} units</p>
                         </div>
                     </div>
                     <div *ngIf="data.recentTrades.length === 0" class="text-center text-gray-500 text-sm py-4">
@@ -118,7 +120,10 @@
 </div>
 
 <ng-template #loading>
-    <div class="flex justify-center items-center h-full">
+    <div *ngIf="!errorMessage" class="flex justify-center items-center h-full">
         <mat-spinner diameter="50"></mat-spinner>
+    </div>
+    <div *ngIf="errorMessage" class="p-6 bg-white rounded-lg shadow-sm text-red-600">
+        {{ errorMessage }}
     </div>
 </ng-template>

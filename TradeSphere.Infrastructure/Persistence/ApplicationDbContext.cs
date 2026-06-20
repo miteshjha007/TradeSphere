@@ -24,6 +24,10 @@ namespace TradeSphere.Infrastructure.Persistence
         public DbSet<Backtest> Backtests { get; set; }
         public DbSet<AiScreenerResult> AiScreenerResults { get; set; }
         public DbSet<Coin> Coins { get; set; }
+        public DbSet<Mt5Account> Mt5Accounts { get; set; }
+        public DbSet<Mt5SymbolMapping> Mt5SymbolMappings { get; set; }
+        public DbSet<PropFirm> PropFirms { get; set; }
+        public DbSet<PropFirmAccount> PropFirmAccounts { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -40,6 +44,21 @@ namespace TradeSphere.Infrastructure.Persistence
             modelBuilder.Entity<Coin>()
                 .HasIndex(c => c.Symbol).IsUnique();
 
+            modelBuilder.Entity<Mt5Account>()
+                .HasIndex(a => new { a.UserId, a.Login, a.Server }).IsUnique();
+
+            modelBuilder.Entity<Mt5SymbolMapping>()
+                .HasIndex(m => new { m.UserId, m.Mt5AccountId, m.StrategySymbol }).IsUnique();
+
+            modelBuilder.Entity<PropFirm>()
+                .HasIndex(f => new { f.UserId, f.Name }).IsUnique();
+
+            modelBuilder.Entity<UserStrategy>()
+                .HasOne(us => us.Mt5Account)
+                .WithMany()
+                .HasForeignKey(us => us.Mt5AccountId)
+                .IsRequired(false);
+
             modelBuilder.Entity<Strategy>()
                 .HasOne(s => s.Creator)
                 .WithMany()
@@ -48,8 +67,9 @@ namespace TradeSphere.Infrastructure.Persistence
 
             // Seed Exchanges
             modelBuilder.Entity<Exchange>().HasData(
-                new Exchange { Id = 1, Name = "Delta Exchange", BaseUrl = "https://api.delta.exchange", IsActive = true },
-                new Exchange { Id = 2, Name = "Cosmic Exchange", BaseUrl = "https://api.cosmic.exchange", IsActive = true }
+                new Exchange { Id = 1, Name = "Delta Exchange India", BaseUrl = "https://api.india.delta.exchange", IsActive = true },
+                new Exchange { Id = 2, Name = "Delta Exchange Global", BaseUrl = "https://api.delta.exchange", IsActive = true },
+                new Exchange { Id = 3, Name = "Delta Exchange Testnet", BaseUrl = "https://testnet-api.delta.exchange", IsActive = true }
             );
         }
     }

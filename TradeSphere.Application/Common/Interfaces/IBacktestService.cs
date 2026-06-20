@@ -10,5 +10,6 @@ namespace TradeSphere.Application.Common.Interfaces
         Task<BacktestResultDetailsDto> GetBacktestDetailsAsync(int userId, int backtestId);
         Task<BacktestDto> RunBacktestAsync(int userId, RunBacktestDto dto);
         Task DeleteBacktestAsync(int userId, int backtestId);
+        Task DeleteAllBacktestsAsync(int userId);
     }
 }

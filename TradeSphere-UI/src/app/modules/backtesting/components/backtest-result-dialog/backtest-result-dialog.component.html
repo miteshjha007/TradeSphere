@@ -1,0 +1,97 @@
+<div class="bg-white w-full max-h-[90vh] overflow-y-auto">
+    <div class="sticky top-0 z-20 flex items-start justify-between gap-4 border-b border-gray-100 bg-white/95 p-6 pb-4 backdrop-blur">
+        <div>
+            <h2 class="text-xl font-bold text-gray-900">Backtest Result</h2>
+            <p class="text-sm text-gray-500 mt-1">
+                {{data.strategyName}} · {{data.symbol}} · {{parsed.interval || data.interval}}
+            </p>
+        </div>
+        <button mat-icon-button mat-dialog-close>
+            <mat-icon>close</mat-icon>
+        </button>
+    </div>
+
+    <div class="p-6">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+        <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <p class="text-xs uppercase tracking-wide text-gray-500">Total Return</p>
+            <p class="text-lg font-bold" [class]="data.totalReturn >= 0 ? 'text-green-600' : 'text-red-600'">
+                {{data.totalReturn | number:'1.2-2'}}%
+            </p>
+        </div>
+        <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <p class="text-xs uppercase tracking-wide text-gray-500">Max Drawdown</p>
+            <p class="text-lg font-bold text-red-500">{{data.maxDrawdown | number:'1.2-2'}}%</p>
+        </div>
+        <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <p class="text-xs uppercase tracking-wide text-gray-500">Trades</p>
+            <p class="text-lg font-bold text-gray-900">{{data.tradeCount}}</p>
+        </div>
+        <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <p class="text-xs uppercase tracking-wide text-gray-500">Equity Points</p>
+            <p class="text-lg font-bold text-gray-900">{{equityPoints.length}}</p>
+        </div>
+        <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <p class="text-xs uppercase tracking-wide text-gray-500">Final Capital</p>
+            <p class="text-lg font-bold text-gray-900">
+                {{finalCapital === null ? '-' : (finalCapital | number:'1.2-2')}}
+            </p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-3 mb-6">
+        <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <p class="text-xs uppercase tracking-wide text-gray-500">Daily Candles</p>
+            <p class="text-lg font-bold text-gray-900">{{parsed.dailyCandles ?? '-'}}</p>
+        </div>
+        <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <p class="text-xs uppercase tracking-wide text-gray-500">Intraday Candles</p>
+            <p class="text-lg font-bold text-gray-900">{{parsed.intradayCandles ?? '-'}}</p>
+        </div>
+    </div>
+
+    <div *ngIf="diagnostics.length > 0" class="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-6">
+        <div class="flex items-start gap-3" *ngFor="let item of diagnostics">
+            <mat-icon class="text-amber-600">warning</mat-icon>
+            <p class="text-sm text-amber-800">{{item}}</p>
+        </div>
+    </div>
+
+    <div *ngIf="trades.length === 0" class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center">
+        <mat-icon class="text-4xl text-gray-400 mb-2">info</mat-icon>
+        <h3 class="font-semibold text-gray-800">No trades generated</h3>
+        <p class="text-sm text-gray-500 mt-1">
+            Backtest completed, but strategy conditions did not create any entry/exit trades for this symbol, interval, and date range.
+        </p>
+    </div>
+
+    <div *ngIf="trades.length > 0" class="rounded-xl border border-gray-100 overflow-auto max-h-[55vh]">
+        <table class="w-full text-sm">
+            <thead class="sticky top-0 z-10 bg-gray-50 text-gray-500 uppercase text-xs shadow-sm">
+                <tr>
+                    <th class="text-left px-4 py-3">Side</th>
+                    <th class="text-right px-4 py-3">Entry</th>
+                    <th class="text-right px-4 py-3">Exit</th>
+                    <th class="text-right px-4 py-3">PnL</th>
+                    <th class="text-left px-4 py-3">Entry Time</th>
+                    <th class="text-left px-4 py-3">Exit Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr *ngFor="let trade of trades" class="border-t border-gray-100">
+                    <td class="px-4 py-3 font-semibold" [class]="trade.side === 'Long' ? 'text-green-600' : 'text-red-600'">
+                        {{trade.side}}
+                    </td>
+                    <td class="px-4 py-3 text-right">{{trade.entryPrice | number:'1.2-2'}}</td>
+                    <td class="px-4 py-3 text-right">{{trade.exitPrice | number:'1.2-2'}}</td>
+                    <td class="px-4 py-3 text-right font-semibold" [class]="trade.pnl >= 0 ? 'text-green-600' : 'text-red-600'">
+                        {{trade.pnl | number:'1.2-2'}}
+                    </td>
+                    <td class="px-4 py-3 text-gray-500">{{formatExchangeTime(trade.entryTime) | date:'short'}}</td>
+                    <td class="px-4 py-3 text-gray-500">{{formatExchangeTime(trade.exitTime) | date:'short'}}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    </div>
+</div>

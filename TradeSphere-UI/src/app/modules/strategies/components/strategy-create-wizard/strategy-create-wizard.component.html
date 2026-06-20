@@ -24,6 +24,34 @@
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-2">
+                        <div class="flex flex-col gap-1.5 md:col-span-2">
+                            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Execution Target</label>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <label class="cursor-pointer rounded-2xl border p-4 transition"
+                                    [ngClass]="firstFormGroup.get('executionProvider')?.value === 'Delta' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:bg-white'">
+                                    <input type="radio" class="hidden" formControlName="executionProvider" value="Delta">
+                                    <div class="flex items-center gap-3">
+                                        <mat-icon class="text-blue-500">currency_exchange</mat-icon>
+                                        <div>
+                                            <div class="font-semibold text-gray-800">Delta Exchange</div>
+                                            <div class="text-xs text-gray-500">Use connected Delta API keys</div>
+                                        </div>
+                                    </div>
+                                </label>
+                                <label class="cursor-pointer rounded-2xl border p-4 transition"
+                                    [ngClass]="firstFormGroup.get('executionProvider')?.value === 'MT5' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:bg-white'">
+                                    <input type="radio" class="hidden" formControlName="executionProvider" value="MT5">
+                                    <div class="flex items-center gap-3">
+                                        <mat-icon class="text-indigo-500">monitoring</mat-icon>
+                                        <div>
+                                            <div class="font-semibold text-gray-800">MT5 Demo/Live</div>
+                                            <div class="text-xs text-gray-500">Execute through local MT5 bridge</div>
+                                        </div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
                         <!-- Strategy Template Selection -->
                         <div class="flex flex-col gap-1.5">
                             <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Strategy Template</label>
@@ -43,10 +71,10 @@
                         </div>
 
                         <!-- Exchange Account Selection -->
-                        <div class="flex flex-col gap-1.5">
+                        <div class="flex flex-col gap-1.5" *ngIf="firstFormGroup.get('executionProvider')?.value === 'Delta'">
                             <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Exchange Account</label>
                             <div class="relative flex items-center">
-                                <select formControlName="exchangeId"
+                                <select formControlName="userExchangeId"
                                     class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 outline-none text-sm text-gray-700 appearance-none cursor-pointer">
                                     <option value="" disabled selected>Choose a connected exchange</option>
                                     <option *ngFor="let ex of userExchanges" [value]="ex.id">{{ ex.name }} ({{ ex.exchangeName }})</option>
@@ -55,15 +83,36 @@
                                     <mat-icon>keyboard_arrow_down</mat-icon>
                                 </div>
                             </div>
-                            <div *ngIf="firstFormGroup.get('exchangeId')?.invalid && firstFormGroup.get('exchangeId')?.touched" class="text-xs text-red-500 font-medium">
+                            <div *ngIf="firstFormGroup.get('userExchangeId')?.invalid && firstFormGroup.get('userExchangeId')?.touched" class="text-xs text-red-500 font-medium">
                                 Exchange is required
+                            </div>
+                        </div>
+
+                        <!-- MT5 Account Selection -->
+                        <div class="flex flex-col gap-1.5" *ngIf="firstFormGroup.get('executionProvider')?.value === 'MT5'">
+                            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">MT5 Account</label>
+                            <div class="relative flex items-center">
+                                <select formControlName="mt5AccountId"
+                                    class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 outline-none text-sm text-gray-700 appearance-none cursor-pointer">
+                                    <option value="" disabled selected>Choose a connected MT5 account</option>
+                                    <option *ngFor="let account of mt5Accounts" [value]="account.id">{{ account.name }} ({{ account.server }})</option>
+                                </select>
+                                <div class="pointer-events-none absolute right-4 text-gray-400 flex items-center">
+                                    <mat-icon>keyboard_arrow_down</mat-icon>
+                                </div>
+                            </div>
+                            <div *ngIf="firstFormGroup.get('mt5AccountId')?.invalid && firstFormGroup.get('mt5AccountId')?.touched" class="text-xs text-red-500 font-medium">
+                                MT5 account is required
+                            </div>
+                            <div *ngIf="mt5Accounts.length === 0" class="text-xs text-amber-600 font-medium">
+                                Add and test an MT5 account first from the MT5 section.
                             </div>
                         </div>
 
                         <!-- Trading Pair / Symbol -->
                         <div class="flex flex-col gap-1.5 md:col-span-2">
                             <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Trading Pair (Symbol)</label>
-                            <input type="text" formControlName="symbol" placeholder="e.g. BTCUSDT or ETH/USD"
+                            <input type="text" formControlName="symbol" [placeholder]="firstFormGroup.get('executionProvider')?.value === 'MT5' ? 'e.g. XAUUSD' : 'e.g. BTCUSD'"
                                 class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 outline-none text-sm text-gray-700 placeholder-gray-400"
                                 [class.border-red-500]="firstFormGroup.get('symbol')?.invalid && firstFormGroup.get('symbol')?.touched">
                             <div *ngIf="firstFormGroup.get('symbol')?.invalid && firstFormGroup.get('symbol')?.touched" class="text-xs text-red-500 font-medium">
@@ -90,6 +139,48 @@
                     <div>
                         <h3 class="text-lg font-bold text-gray-800 mb-1">Strategy Parameters</h3>
                         <p class="text-xs text-gray-400">Configure parameters in JSON format. Default parameters are populated from the template.</p>
+                    </div>
+
+                    <!-- Sizing and Leverage Section -->
+                    <div class="bg-blue-50/50 border border-blue-100 rounded-2xl p-5 mb-4 flex flex-col gap-4">
+                        <div>
+                            <h4 class="text-sm font-bold text-gray-800 mb-0.5">Position Sizing & Leverage</h4>
+                            <p class="text-xs text-gray-400">Configure how much capital or leverage to use for each trade. This dynamically sizes your order when triggered.</p>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <!-- Size Type -->
+                            <div class="flex flex-col gap-1.5">
+                                <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Size Type</label>
+                                <div class="relative flex items-center">
+                                    <select formControlName="tradeSizeType"
+                                        class="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-xs text-gray-700 appearance-none cursor-pointer">
+                                        <option value="Contracts">Contracts (Lots)</option>
+                                        <option value="USD">Position size (USD)</option>
+                                        <option value="INR">Position size (INR)</option>
+                                        <option value="Margin_USD">Margin amount (USD)</option>
+                                        <option value="Margin_INR">Margin amount (INR)</option>
+                                    </select>
+                                    <div class="pointer-events-none absolute right-3 text-gray-400 flex items-center">
+                                        <mat-icon style="transform: scale(0.8);">keyboard_arrow_down</mat-icon>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Size Value -->
+                            <div class="flex flex-col gap-1.5">
+                                <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Size Value</label>
+                                <input type="number" formControlName="tradeSizeValue" min="0.0001" step="any"
+                                    class="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-xs text-gray-700">
+                            </div>
+
+                            <!-- Leverage -->
+                            <div class="flex flex-col gap-1.5" *ngIf="secondFormGroup.get('tradeSizeType')?.value?.startsWith('Margin_')">
+                                <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Leverage</label>
+                                <input type="number" formControlName="leverage" min="1" max="200"
+                                    class="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none text-xs text-gray-700">
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Configuration JSON Area -->

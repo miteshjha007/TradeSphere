@@ -2,7 +2,6 @@ import { Component, OnInit } from '@angular/core';
 import { StrategyService } from '../../services/strategy.service';
 import { UserStrategy, Strategy } from '../../models/strategy.model';
 import { MatDialog } from '@angular/material/dialog';
-import { StrategyCreateWizardComponent } from '../../components/strategy-create-wizard/strategy-create-wizard.component';
 
 @Component({
   selector: 'app-strategy-list',
@@ -13,6 +12,8 @@ export class StrategyListComponent implements OnInit {
   activeStrategies: UserStrategy[] = [];
   availableStrategies: Strategy[] = [];
   isLoading = true;
+  confirmDeleteId: number | null = null;  // Track which strategy is awaiting delete confirm
+  errorMessage: string | null = null;
 
   constructor(private strategyService: StrategyService, private dialog: MatDialog) { }
 
@@ -22,6 +23,8 @@ export class StrategyListComponent implements OnInit {
 
   loadData() {
     this.isLoading = true;
+    this.errorMessage = null;
+    this.confirmDeleteId = null;
     this.strategyService.getUserStrategies().subscribe({
       next: (data: UserStrategy[]) => {
         this.activeStrategies = data;
@@ -29,27 +32,39 @@ export class StrategyListComponent implements OnInit {
       },
       error: () => this.isLoading = false
     });
-
-    // Also load available templates if needed, or in a separate tab
   }
 
   toggleStatus(strategy: UserStrategy) {
     const newStatus = strategy.status === 'Running' ? 'Stopped' : 'Running';
-    this.strategyService.toggleStatus(strategy.id, newStatus).subscribe(() => {
-      strategy.status = newStatus;
+    this.strategyService.toggleStatus(strategy.id, newStatus).subscribe({
+      next: () => {
+        strategy.status = newStatus;
+      },
+      error: (err) => {
+        this.errorMessage = 'Failed to update status: ' + (err.error?.message || err.message);
+      }
     });
   }
 
-  deleteStrategy(id: number) {
-    if (confirm('Are you sure you want to delete this strategy instance?')) {
-      this.strategyService.deleteStrategy(id).subscribe(() => {
-        this.loadData();
-      });
-    }
+  requestDelete(id: number) {
+    this.confirmDeleteId = id;   // Show inline confirmation for this strategy
+    this.errorMessage = null;
   }
 
-  openCreateWizard() {
-    // Logic to open wizard or navigate to create page
-    // alert('Wizard to be implemented');
+  cancelDelete() {
+    this.confirmDeleteId = null;
+  }
+
+  confirmDelete(id: number) {
+    this.strategyService.deleteStrategy(id).subscribe({
+      next: () => {
+        this.confirmDeleteId = null;
+        this.loadData();
+      },
+      error: (err) => {
+        this.confirmDeleteId = null;
+        this.errorMessage = 'Cannot delete: ' + (err.error?.message || err.message || 'Unknown error');
+      }
+    });
   }
 }

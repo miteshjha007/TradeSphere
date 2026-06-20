@@ -43,6 +43,14 @@ namespace TradeSphere.API.Controllers
             return Ok(result);
         }
 
+        [HttpDelete]
+        public async Task<IActionResult> DeleteAllBacktests()
+        {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+            await _backtestService.DeleteAllBacktestsAsync(userId);
+            return NoContent();
+        }
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteBacktest(int id)
         {

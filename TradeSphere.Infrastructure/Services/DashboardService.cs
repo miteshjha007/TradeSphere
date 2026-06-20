@@ -39,24 +39,43 @@ namespace TradeSphere.Infrastructure.Services
                     Price = t.Price ?? 0,
                     Quantity = t.Quantity,
                     Status = t.Status,
+                    ErrorReason = t.ErrorReason,
                     TimeAgo = GetTimeAgo(t.CreatedAt)
                 })
                 .ToListAsync();
 
             var totalPnl = await _context.Trades
-                .Where(t => t.UserId == userId)
+                .Where(t => t.UserId == userId && t.Status == "Filled")
                 .SumAsync(t => t.Pnl);
 
-            // Mock Data for Top Strategies as we filter from UserStrategies or Backtests
-            var topStrategies = new List<StrategyPerformanceDto>
-            {
-                new StrategyPerformanceDto { Name = "Cosmic Turbo Trend", Pnl = 1250.50m, WinRate = 65.5m },
-                new StrategyPerformanceDto { Name = "Gold Mine", Pnl = 850.20m, WinRate = 58.2m }
-            };
+            var strategyTrades = await _context.Trades
+                .Include(t => t.UserStrategy)
+                    .ThenInclude(us => us.Strategy)
+                .Where(t => t.UserId == userId && t.Status == "Filled" && t.UserStrategyId != null)
+                .ToListAsync();
+
+            var topStrategies = strategyTrades
+                .GroupBy(t => t.UserStrategy?.Strategy?.Name ?? "Unknown Strategy")
+                .Select(g =>
+                {
+                    var totalTrades = g.Count();
+                    var winningTrades = g.Count(t => t.Pnl > 0);
+
+                    return new StrategyPerformanceDto
+                    {
+                        Name = g.Key,
+                        Pnl = g.Sum(t => t.Pnl),
+                        WinRate = totalTrades > 0 ? Math.Round((decimal)winningTrades / totalTrades * 100m, 2) : 0m
+                    };
+                })
+                .Where(s => s.Pnl != 0 || s.WinRate != 0)
+                .OrderByDescending(s => s.Pnl)
+                .Take(5)
+                .ToList();
 
             return new DashboardDto
             {
-                TotalBalance = 10000 + totalPnl, // Mock starting balance + PnL
+                TotalBalance = 0m,
                 TotalPnl = totalPnl,
                 ActiveStrategies = userStrategies.Count,
                 ConnectedExchanges = userExchanges,

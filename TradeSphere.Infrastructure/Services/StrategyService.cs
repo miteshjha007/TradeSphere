@@ -40,6 +40,7 @@ namespace TradeSphere.Infrastructure.Services
             return await _context.UserStrategies
                 .Include(us => us.Strategy)
                 .Include(us => us.Exchange)
+                .Include(us => us.Mt5Account)
                 .Where(us => us.UserId == userId)
                 .Select(us => new UserStrategyDto
                 {
@@ -47,7 +48,10 @@ namespace TradeSphere.Infrastructure.Services
                     StrategyId = us.StrategyId,
                     StrategyName = us.Strategy.Name,
                     ExchangeId = us.ExchangeId,
-                    ExchangeName = us.Exchange.Name,
+                    ExchangeName = us.ExecutionProvider == "MT5" && us.Mt5Account != null ? "MT5" : us.Exchange.Name,
+                    ExecutionProvider = us.ExecutionProvider,
+                    Mt5AccountId = us.Mt5AccountId,
+                    Mt5AccountName = us.Mt5Account != null ? us.Mt5Account.Name : null,
                     Symbol = us.Symbol,
                     Config = us.Config,
                     Status = us.Status,
@@ -58,11 +62,65 @@ namespace TradeSphere.Infrastructure.Services
 
         public async Task<UserStrategyDto> DeployStrategyAsync(int userId, DeployStrategyDto dto)
         {
+            var provider = string.IsNullOrWhiteSpace(dto.ExecutionProvider)
+                ? "Delta"
+                : dto.ExecutionProvider.Trim();
+
+            UserExchange? userExchange = null;
+            Mt5Account? mt5Account = null;
+            int exchangeId;
+
+            if (provider.Equals("MT5", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!dto.Mt5AccountId.HasValue)
+                    throw new System.Exception("MT5 account is required for MT5 strategy deployment.");
+
+                mt5Account = await _context.Mt5Accounts
+                    .FirstOrDefaultAsync(a => a.Id == dto.Mt5AccountId.Value && a.UserId == userId);
+
+                if (mt5Account == null)
+                    throw new System.Exception("MT5 account not found or does not belong to this user.");
+
+                var mt5Exchange = await _context.Exchanges.FirstOrDefaultAsync(e => e.Name == "MT5");
+                if (mt5Exchange == null)
+                {
+                    mt5Exchange = new Exchange
+                    {
+                        Name = "MT5",
+                        BaseUrl = "local-mt5-bridge",
+                        IsActive = true
+                    };
+                    _context.Exchanges.Add(mt5Exchange);
+                    await _context.SaveChangesAsync();
+                }
+
+                exchangeId = mt5Exchange.Id;
+                provider = "MT5";
+            }
+            else
+            {
+                if (!dto.UserExchangeId.HasValue)
+                    throw new System.Exception("Exchange account is required for Delta strategy deployment.");
+
+                userExchange = await _context.UserExchanges
+                    .Include(ue => ue.Exchange)
+                    .FirstOrDefaultAsync(ue => ue.Id == dto.UserExchangeId.Value && ue.UserId == userId);
+
+                if (userExchange == null)
+                    throw new System.Exception("Exchange account not found or does not belong to this user.");
+
+                exchangeId = userExchange.ExchangeId;
+                provider = "Delta";
+            }
+
             var userStrategy = new UserStrategy
             {
                 UserId = userId,
                 StrategyId = dto.StrategyId,
-                ExchangeId = dto.ExchangeId,
+                ExchangeId = exchangeId,
+                UserExchangeId = userExchange?.Id,
+                ExecutionProvider = provider,
+                Mt5AccountId = mt5Account?.Id,
                 Symbol = dto.Symbol,
                 Config = dto.Config,
                 Status = "Stopped",
@@ -74,6 +132,7 @@ namespace TradeSphere.Infrastructure.Services
 
             await _context.Entry(userStrategy).Reference(us => us.Strategy).LoadAsync();
             await _context.Entry(userStrategy).Reference(us => us.Exchange).LoadAsync();
+            await _context.Entry(userStrategy).Reference(us => us.Mt5Account).LoadAsync();
 
             return new UserStrategyDto
             {
@@ -81,7 +140,10 @@ namespace TradeSphere.Infrastructure.Services
                 StrategyId = userStrategy.StrategyId,
                 StrategyName = userStrategy.Strategy.Name,
                 ExchangeId = userStrategy.ExchangeId,
-                ExchangeName = userStrategy.Exchange.Name,
+                ExchangeName = userStrategy.ExecutionProvider == "MT5" ? "MT5" : userStrategy.Exchange.Name,
+                ExecutionProvider = userStrategy.ExecutionProvider,
+                Mt5AccountId = userStrategy.Mt5AccountId,
+                Mt5AccountName = userStrategy.Mt5Account?.Name,
                 Symbol = userStrategy.Symbol,
                 Config = userStrategy.Config,
                 Status = userStrategy.Status
@@ -143,6 +205,21 @@ namespace TradeSphere.Infrastructure.Services
             
             if (strategy != null)
             {
+                if (strategy.Status == "Running")
+                {
+                    throw new System.Exception("Cannot delete a strategy that is currently running. Please stop it first.");
+                }
+
+                // Disassociate any trades referencing this strategy before deletion
+                var associatedTrades = await _context.Trades
+                    .Where(t => t.UserStrategyId == userStrategyId)
+                    .ToListAsync();
+
+                foreach (var trade in associatedTrades)
+                {
+                    trade.UserStrategyId = null;
+                }
+
                 _context.UserStrategies.Remove(strategy);
                 await _context.SaveChangesAsync();
             }

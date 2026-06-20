@@ -3,6 +3,9 @@
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
+*.log
+__pycache__/
+*.pyc
 *.user
 *.suo
 *.userosscache

@@ -37,8 +37,9 @@ export class AddExchangeDialogComponent implements OnInit {
         this.isLoading = false;
         // Mock data
         this.supportedExchanges = [
-          { id: 1, name: 'Delta Exchange', baseUrl: 'https://api.delta.exchange' },
-          { id: 2, name: 'Cosmic Exchange', baseUrl: 'https://api.cosmic.exchange' }
+          { id: 1, name: 'Delta Exchange India', baseUrl: 'https://api.india.delta.exchange' },
+          { id: 2, name: 'Delta Exchange Testnet', baseUrl: 'https://cdn-ind.testnet.deltaex.org' },
+          { id: 3, name: 'Cosmic Exchange', baseUrl: 'https://api.cosmic.exchange' }
         ];
       }
     });

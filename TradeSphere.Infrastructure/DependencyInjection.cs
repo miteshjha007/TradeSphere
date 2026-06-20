@@ -23,7 +23,11 @@ namespace TradeSphere.Infrastructure
             services.AddScoped<IDashboardService, Services.DashboardService>();
             services.AddScoped<IExchangeService, Services.ExchangeService>();
             services.AddScoped<IStrategyService, Services.StrategyService>();
+            services.AddScoped<ITradingService, Services.TradingService>();
             services.AddScoped<IBacktestService, Services.BacktestService>();
+            services.AddScoped<IMt5Service, Services.Mt5Service>();
+            services.AddScoped<IPropFirmService, Services.PropFirmService>();
+            services.AddHttpClient<IMt5BridgeClient, Services.Mt5BridgeClient>();
             
             // Register Delta Exchange REST Client
             services.AddHttpClient<IDeltaExchangeClient, Services.DeltaExchangeClient>();
