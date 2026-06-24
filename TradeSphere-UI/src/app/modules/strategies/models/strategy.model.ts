@@ -21,6 +21,20 @@ export interface UserStrategy {
     config: string;
     status: string;
     startedAt?: Date;
+    health?: StrategyHealthSnapshot;
+}
+
+export interface StrategyHealthSnapshot {
+    lastCheckedAt: Date;
+    symbol: string;
+    resolution: string;
+    price?: number;
+    position: number;
+    isEntryEligible: boolean;
+    suggestedSide?: string;
+    status: string;
+    reason: string;
+    detailsJson?: string;
 }
 
 export interface DeployStrategyDto {

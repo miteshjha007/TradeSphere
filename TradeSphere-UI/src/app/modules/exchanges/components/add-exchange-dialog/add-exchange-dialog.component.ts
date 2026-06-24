@@ -39,10 +39,21 @@ export class AddExchangeDialogComponent implements OnInit {
         this.supportedExchanges = [
           { id: 1, name: 'Delta Exchange India', baseUrl: 'https://api.india.delta.exchange' },
           { id: 2, name: 'Delta Exchange Testnet', baseUrl: 'https://cdn-ind.testnet.deltaex.org' },
-          { id: 3, name: 'Cosmic Exchange', baseUrl: 'https://api.cosmic.exchange' }
+          { id: 3, name: 'Cosmic Exchange', baseUrl: 'https://api.cosmic.exchange' },
+          { id: 4, name: 'CoinDCX Futures', baseUrl: 'https://api.coindcx.com' },
+          { id: 5, name: 'Dhan', baseUrl: 'https://api.dhan.co/v2' }
         ];
       }
     });
+  }
+
+  selectedExchangeName(): string {
+    const exchangeId = Number(this.form.get('exchangeId')?.value);
+    return this.supportedExchanges.find(ex => ex.id === exchangeId)?.name || '';
+  }
+
+  isDhanSelected(): boolean {
+    return this.selectedExchangeName().toLowerCase() === 'dhan';
   }
 
   onSubmit(): void {

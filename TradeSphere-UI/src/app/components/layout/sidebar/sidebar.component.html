@@ -39,6 +39,39 @@
             <mat-icon class="mr-3">monitoring</mat-icon>
             <span class="font-medium">MT5</span>
         </a>
+        <div class="space-y-1">
+            <button type="button" (click)="toggleIndianMarket()"
+                class="flex w-full items-center px-4 py-3 rounded-lg hover:bg-gray-50 transition-colors"
+                [class.bg-blue-50]="isIndianMarketActive()" [class.text-blue-600]="isIndianMarketActive()"
+                [class.text-gray-600]="!isIndianMarketActive()">
+                <mat-icon class="mr-3">account_balance</mat-icon>
+                <span class="font-medium">Indian Market</span>
+                <mat-icon class="ml-auto text-base transition-transform" [class.rotate-180]="isIndianMarketExpanded">expand_more</mat-icon>
+            </button>
+
+            <div *ngIf="isIndianMarketExpanded" class="ml-6 space-y-1 border-l border-slate-200 pl-3">
+                <a routerLink="/indian-market/options" routerLinkActive="bg-blue-50 text-blue-600"
+                    class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
+                    <mat-icon class="mr-2 text-base">show_chart</mat-icon>
+                    <span class="font-medium">Options Desk</span>
+                </a>
+                <a routerLink="/indian-market/ipos" routerLinkActive="bg-blue-50 text-blue-600"
+                    class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
+                    <mat-icon class="mr-2 text-base">rocket_launch</mat-icon>
+                    <span class="font-medium">IPOs</span>
+                </a>
+                <a routerLink="/indian-market/intraday-picks" routerLinkActive="bg-blue-50 text-blue-600"
+                    class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
+                    <mat-icon class="mr-2 text-base">bolt</mat-icon>
+                    <span class="font-medium">Intraday Picks</span>
+                </a>
+                <a routerLink="/indian-market/long-term-picks" routerLinkActive="bg-blue-50 text-blue-600"
+                    class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
+                    <mat-icon class="mr-2 text-base">trending_up</mat-icon>
+                    <span class="font-medium">Long Term Picks</span>
+                </a>
+            </div>
+        </div>
     </nav>
     <div class="p-4 border-t">
         <button (click)="logout()"

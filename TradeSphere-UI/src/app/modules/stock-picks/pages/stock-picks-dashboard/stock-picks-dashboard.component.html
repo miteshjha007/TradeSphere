@@ -1,0 +1,133 @@
+<div class="min-h-screen bg-slate-50 p-8">
+  <div class="mx-auto max-w-7xl space-y-6">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div>
+        <p class="text-xs font-black uppercase tracking-[0.35em] text-emerald-600">Indian Market Scanner</p>
+        <h1 class="mt-2 text-3xl font-black text-slate-950">{{ pageTitle() }}</h1>
+        <p class="mt-1 text-sm text-slate-500">{{ pageSubtitle() }}</p>
+      </div>
+      <button type="button" (click)="loadPicks()" class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-bold text-white shadow hover:bg-black">
+        <mat-icon>refresh</mat-icon>
+        Refresh Picks
+      </button>
+    </div>
+
+    <div *ngIf="errorMessage" class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {{ errorMessage }}
+    </div>
+
+    <div *ngIf="isLoading" class="flex min-h-[320px] items-center justify-center rounded-3xl border border-slate-200 bg-white">
+      <mat-spinner diameter="36"></mat-spinner>
+    </div>
+
+    <ng-container *ngIf="!isLoading && dashboard">
+      <div class="grid gap-4 lg:grid-cols-3">
+        <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="text-xs font-bold uppercase tracking-wide text-slate-400">Picks</div>
+          <div class="mt-2 text-4xl font-black text-slate-950">{{ dashboard.picks.length }}</div>
+          <div class="mt-1 text-xs text-slate-500">{{ dashboard.universe }}</div>
+        </div>
+        <div class="rounded-3xl border border-emerald-100 bg-emerald-50 p-5 shadow-sm">
+          <div class="text-xs font-bold uppercase tracking-wide text-emerald-600">Source</div>
+          <div class="mt-2 text-lg font-black text-slate-950">{{ dashboard.source }}</div>
+          <div class="mt-1 text-xs text-slate-500">Free public candles, no API key required.</div>
+        </div>
+        <div class="rounded-3xl border border-amber-100 bg-amber-50 p-5 shadow-sm">
+          <div class="text-xs font-bold uppercase tracking-wide text-amber-600">Last Updated</div>
+          <div class="mt-2 text-xl font-black text-slate-950">{{ formatDate(dashboard.lastUpdatedAt) }}</div>
+          <div class="mt-1 text-xs text-slate-500">Refresh before market decisions.</div>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+        {{ dashboard.methodology }}
+      </div>
+
+      <div *ngFor="let warning of dashboard.warnings" class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        {{ warning }}
+      </div>
+
+      <section class="rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div class="border-b border-slate-100 p-5">
+          <h2 class="text-xl font-black text-slate-950">{{ pageTitle() }} Watchlist</h2>
+          <p class="mt-1 text-sm text-slate-500">Each pick includes scanner reasons and risk levels so it stays transparent, not magic.</p>
+        </div>
+
+        <div *ngIf="dashboard.picks.length === 0" class="p-10 text-center">
+          <mat-icon class="text-5xl text-slate-300">query_stats</mat-icon>
+          <h3 class="mt-3 text-lg font-black text-slate-800">No picks generated</h3>
+          <p class="mt-1 text-sm text-slate-500">The free candle source may be unavailable, throttled, or returning insufficient history.</p>
+        </div>
+
+        <div class="grid gap-4 p-5 xl:grid-cols-2" *ngIf="dashboard.picks.length > 0">
+          <article *ngFor="let pick of dashboard.picks" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+            <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-black text-white">#{{ pick.rank }}</span>
+                  <span class="rounded-full border px-2.5 py-1 text-xs font-black" [ngClass]="scoreClass(pick.score)">Score {{ pick.score | number:'1.0-0' }}</span>
+                  <span class="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700">{{ pick.bias }}</span>
+                  <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">{{ pick.risk }} Risk</span>
+                </div>
+                <h3 class="mt-3 text-xl font-black text-slate-950">{{ pick.symbol }}</h3>
+                <p class="text-sm text-slate-500">{{ pick.name }} - {{ pick.horizon }}</p>
+              </div>
+              <div class="rounded-2xl bg-slate-50 p-4 text-right">
+                <div class="text-xs font-bold uppercase text-slate-400">Last Price</div>
+                <div class="text-2xl font-black text-slate-950">Rs. {{ pick.lastPrice | number:'1.2-2' }}</div>
+                <div class="mt-1 text-xs" [class.text-emerald-600]="pick.change1DPercent >= 0" [class.text-red-500]="pick.change1DPercent < 0">
+                  1D {{ pick.change1DPercent | number:'1.2-2' }}%
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div class="rounded-2xl bg-slate-50 p-3">
+                <div class="text-[10px] font-bold uppercase text-slate-400">5D</div>
+                <div class="text-sm font-black" [class.text-emerald-600]="pick.change5DPercent >= 0" [class.text-red-500]="pick.change5DPercent < 0">{{ pick.change5DPercent | number:'1.2-2' }}%</div>
+              </div>
+              <div class="rounded-2xl bg-slate-50 p-3">
+                <div class="text-[10px] font-bold uppercase text-slate-400">20D</div>
+                <div class="text-sm font-black" [class.text-emerald-600]="pick.change20DPercent >= 0" [class.text-red-500]="pick.change20DPercent < 0">{{ pick.change20DPercent | number:'1.2-2' }}%</div>
+              </div>
+              <div class="rounded-2xl bg-slate-50 p-3">
+                <div class="text-[10px] font-bold uppercase text-slate-400">{{ metricLabel() }}</div>
+                <div class="text-sm font-black text-slate-900">{{ metricValue(pick) }}</div>
+              </div>
+              <div class="rounded-2xl bg-slate-50 p-3">
+                <div class="text-[10px] font-bold uppercase text-slate-400">ATR Vol</div>
+                <div class="text-sm font-black text-slate-900">{{ pick.volatilityPercent | number:'1.2-2' }}%</div>
+              </div>
+            </div>
+
+            <div class="mt-5 grid gap-3 md:grid-cols-2">
+              <div class="rounded-2xl border border-slate-100 p-3">
+                <div class="text-[10px] font-bold uppercase text-slate-400">Entry Zone</div>
+                <div class="mt-1 text-sm font-bold text-slate-800">{{ pick.entryZone }}</div>
+              </div>
+              <div class="rounded-2xl border border-red-100 bg-red-50 p-3">
+                <div class="text-[10px] font-bold uppercase text-red-400">Invalidation / SL</div>
+                <div class="mt-1 text-sm font-bold text-red-700">{{ pick.stopLoss }}</div>
+              </div>
+              <div class="rounded-2xl border border-emerald-100 bg-emerald-50 p-3">
+                <div class="text-[10px] font-bold uppercase text-emerald-500">Target 1</div>
+                <div class="mt-1 text-sm font-bold text-emerald-700">{{ pick.target1 }}</div>
+              </div>
+              <div class="rounded-2xl border border-emerald-100 bg-emerald-50 p-3">
+                <div class="text-[10px] font-bold uppercase text-emerald-500">Target 2</div>
+                <div class="mt-1 text-sm font-bold text-emerald-700">{{ pick.target2 }}</div>
+              </div>
+            </div>
+
+            <div class="mt-5">
+              <div class="text-xs font-black uppercase tracking-wide text-slate-400">Why picked</div>
+              <ul class="mt-2 space-y-1 text-sm text-slate-600">
+                <li *ngFor="let reason of pick.reasons">- {{ reason }}</li>
+              </ul>
+            </div>
+          </article>
+        </div>
+      </section>
+    </ng-container>
+  </div>
+</div>

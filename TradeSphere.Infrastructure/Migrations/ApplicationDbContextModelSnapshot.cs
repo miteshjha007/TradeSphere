@@ -199,7 +199,7 @@ namespace TradeSphere.Infrastructure.Migrations
                         {
                             Id = 1,
                             BaseUrl = "https://api.india.delta.exchange",
-                            CreatedAt = new DateTime(2026, 6, 16, 7, 28, 54, 179, DateTimeKind.Utc).AddTicks(765),
+                            CreatedAt = new DateTime(2026, 6, 24, 10, 56, 26, 157, DateTimeKind.Utc).AddTicks(3877),
                             IsActive = true,
                             Name = "Delta Exchange India"
                         },
@@ -207,7 +207,7 @@ namespace TradeSphere.Infrastructure.Migrations
                         {
                             Id = 2,
                             BaseUrl = "https://api.delta.exchange",
-                            CreatedAt = new DateTime(2026, 6, 16, 7, 28, 54, 179, DateTimeKind.Utc).AddTicks(768),
+                            CreatedAt = new DateTime(2026, 6, 24, 10, 56, 26, 157, DateTimeKind.Utc).AddTicks(3883),
                             IsActive = true,
                             Name = "Delta Exchange Global"
                         },
@@ -215,7 +215,7 @@ namespace TradeSphere.Infrastructure.Migrations
                         {
                             Id = 3,
                             BaseUrl = "https://testnet-api.delta.exchange",
-                            CreatedAt = new DateTime(2026, 6, 16, 7, 28, 54, 179, DateTimeKind.Utc).AddTicks(769),
+                            CreatedAt = new DateTime(2026, 6, 24, 10, 56, 26, 157, DateTimeKind.Utc).AddTicks(3884),
                             IsActive = true,
                             Name = "Delta Exchange Testnet"
                         });
@@ -490,6 +490,65 @@ namespace TradeSphere.Infrastructure.Migrations
                     b.HasIndex("CreatedBy");
 
                     b.ToTable("Strategies");
+                });
+
+            modelBuilder.Entity("TradeSphere.Domain.Entities.StrategyHealthSnapshot", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("DetailsJson")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsEntryEligible")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("LastCheckedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("Price")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Resolution")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SuggestedSide")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Symbol")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int>("UserStrategyId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserStrategyId")
+                        .IsUnique();
+
+                    b.ToTable("StrategyHealthSnapshots");
                 });
 
             modelBuilder.Entity("TradeSphere.Domain.Entities.Trade", b =>
@@ -815,6 +874,17 @@ namespace TradeSphere.Infrastructure.Migrations
                         .HasForeignKey("CreatedBy");
 
                     b.Navigation("Creator");
+                });
+
+            modelBuilder.Entity("TradeSphere.Domain.Entities.StrategyHealthSnapshot", b =>
+                {
+                    b.HasOne("TradeSphere.Domain.Entities.UserStrategy", "UserStrategy")
+                        .WithMany()
+                        .HasForeignKey("UserStrategyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("UserStrategy");
                 });
 
             modelBuilder.Entity("TradeSphere.Domain.Entities.Trade", b =>

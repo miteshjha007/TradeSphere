@@ -71,6 +71,10 @@ export class ExchangeListComponent implements OnInit {
     });
   }
 
+  isCoinDcx(exchange: ExchangeWithTestState): boolean {
+    return exchange.exchangeName.toLowerCase().includes('coindcx');
+  }
+
   requestDelete(id: number): void {
     this.confirmDeleteId = id;
     this.errorMessage = null;

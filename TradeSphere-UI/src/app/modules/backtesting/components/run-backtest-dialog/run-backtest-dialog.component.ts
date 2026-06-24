@@ -49,9 +49,16 @@ export class RunBacktestDialogComponent implements OnInit {
         if (this.form.get('symbol')?.value === 'BTCUSD') {
           this.form.patchValue({ symbol: 'XAUUSD' }, { emitEvent: false });
         }
+      } else if (source === 'CoinDCX') {
+        mt5Account?.clearValidators();
+        mt5Account?.setValue(null, { emitEvent: false });
+        if (this.form.get('symbol')?.value === 'XAUUSD' || this.form.get('symbol')?.value === 'BTCUSD') {
+          this.form.patchValue({ symbol: 'BTCUSDT' }, { emitEvent: false });
+        }
       } else {
         mt5Account?.clearValidators();
-        if (this.form.get('symbol')?.value === 'XAUUSD') {
+        mt5Account?.setValue(null, { emitEvent: false });
+        if (this.form.get('symbol')?.value === 'XAUUSD' || this.form.get('symbol')?.value === 'BTCUSDT') {
           this.form.patchValue({ symbol: 'BTCUSD' }, { emitEvent: false });
         }
       }
@@ -62,7 +69,22 @@ export class RunBacktestDialogComponent implements OnInit {
   onSubmit() {
     if (this.form.valid) {
       this.isLoading = true;
-      this.backtestService.runBacktest(this.form.value).subscribe({
+      const raw = this.form.value;
+      const payload: any = {
+        strategyId: Number(raw.strategyId),
+        dataSource: raw.dataSource,
+        symbol: raw.symbol,
+        interval: raw.interval,
+        startDate: raw.startDate,
+        endDate: raw.endDate,
+        initialCapital: Number(raw.initialCapital)
+      };
+
+      if (raw.dataSource === 'MT5' && raw.mt5AccountId) {
+        payload.mt5AccountId = Number(raw.mt5AccountId);
+      }
+
+      this.backtestService.runBacktest(payload).subscribe({
         next: (res) => {
           this.isLoading = false;
           this.dialogRef.close(res);

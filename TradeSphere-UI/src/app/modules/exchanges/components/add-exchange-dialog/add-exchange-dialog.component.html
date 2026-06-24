@@ -42,23 +42,23 @@
 
         <!-- API Key -->
         <div class="flex flex-col gap-1.5">
-            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">API Key</label>
-            <input type="text" formControlName="apiKey" placeholder="Enter API Key" 
-                class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 outline-none text-sm text-gray-700 placeholder-gray-400" 
+            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ isDhanSelected() ? 'Dhan Client ID' : 'API Key' }}</label>
+            <input type="text" formControlName="apiKey" [placeholder]="isDhanSelected() ? 'Enter Dhan Client ID' : 'Enter API Key'"
+                class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 outline-none text-sm text-gray-700 placeholder-gray-400"
                 [class.border-red-500]="form.get('apiKey')?.invalid && form.get('apiKey')?.touched">
             <div *ngIf="form.get('apiKey')?.invalid && form.get('apiKey')?.touched" class="text-xs text-red-500 font-medium">
-                API Key is required
+                {{ isDhanSelected() ? 'Dhan Client ID is required' : 'API Key is required' }}
             </div>
         </div>
 
         <!-- API Secret -->
         <div class="flex flex-col gap-1.5">
-            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">API Secret</label>
-            <input type="password" formControlName="apiSecret" placeholder="Enter API Secret" 
-                class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 outline-none text-sm text-gray-700 placeholder-gray-400" 
+            <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ isDhanSelected() ? 'Access Token' : 'API Secret' }}</label>
+            <input type="password" formControlName="apiSecret" [placeholder]="isDhanSelected() ? 'Enter Dhan Access Token' : 'Enter API Secret'"
+                class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 outline-none text-sm text-gray-700 placeholder-gray-400"
                 [class.border-red-500]="form.get('apiSecret')?.invalid && form.get('apiSecret')?.touched">
             <div *ngIf="form.get('apiSecret')?.invalid && form.get('apiSecret')?.touched" class="text-xs text-red-500 font-medium">
-                API Secret is required
+                {{ isDhanSelected() ? 'Access Token is required' : 'API Secret is required' }}
             </div>
         </div>
 

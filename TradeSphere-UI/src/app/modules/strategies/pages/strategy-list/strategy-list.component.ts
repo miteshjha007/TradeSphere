@@ -67,4 +67,29 @@ export class StrategyListComponent implements OnInit {
       }
     });
   }
+
+  getPositionLabel(position: number | undefined): string {
+    if (position === 1) {
+      return 'Long open';
+    }
+
+    if (position === -1) {
+      return 'Short open';
+    }
+
+    return 'Flat';
+  }
+
+  getHealthTone(status: string | undefined): string {
+    const value = (status || '').toLowerCase();
+    if (value.includes('ready') || value.includes('managing')) {
+      return 'bg-green-50 text-green-700 border-green-200';
+    }
+
+    if (value.includes('waiting')) {
+      return 'bg-amber-50 text-amber-700 border-amber-200';
+    }
+
+    return 'bg-slate-50 text-slate-600 border-slate-200';
+  }
 }

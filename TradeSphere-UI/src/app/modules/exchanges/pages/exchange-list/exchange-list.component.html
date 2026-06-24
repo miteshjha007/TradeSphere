@@ -121,10 +121,17 @@
             <p [ngClass]="ex.testResult.success ? 'text-green-800' : 'text-red-700'" class="font-medium">
               {{ ex.testResult.message }}
             </p>
-            <p *ngIf="ex.testResult.success && ex.testResult.walletBalance !== undefined"
+            <div *ngIf="ex.testResult.success && isCoinDcx(ex)" class="text-green-600 text-xs mt-0.5 space-y-0.5">
+              <p *ngIf="ex.testResult.coinsBalance !== undefined">
+                Coins Balance: <strong>{{ ex.testResult.coinsBalance | number:'1.2-2' }} {{ ex.testResult.coinsCurrency }}</strong>
+              </p>
+              <p *ngIf="ex.testResult.futuresBalance !== undefined">
+                Futures Balance: <strong>{{ ex.testResult.futuresBalance | number:'1.2-2' }} {{ ex.testResult.futuresCurrency }}</strong>
+              </p>
+            </div>
+            <p *ngIf="ex.testResult.success && !isCoinDcx(ex) && ex.testResult.walletBalance !== undefined"
               class="text-green-600 text-xs mt-0.5">
               Wallet Balance: <strong>{{ ex.testResult.walletBalance | number:'1.2-2' }} {{ ex.testResult.currency }}</strong>
-              (Testnet)
             </p>
           </div>
         </div>

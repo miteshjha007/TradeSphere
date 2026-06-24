@@ -28,6 +28,7 @@ namespace TradeSphere.Infrastructure.Persistence
         public DbSet<Mt5SymbolMapping> Mt5SymbolMappings { get; set; }
         public DbSet<PropFirm> PropFirms { get; set; }
         public DbSet<PropFirmAccount> PropFirmAccounts { get; set; }
+        public DbSet<StrategyHealthSnapshot> StrategyHealthSnapshots { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -52,6 +53,15 @@ namespace TradeSphere.Infrastructure.Persistence
 
             modelBuilder.Entity<PropFirm>()
                 .HasIndex(f => new { f.UserId, f.Name }).IsUnique();
+
+            modelBuilder.Entity<StrategyHealthSnapshot>()
+                .HasIndex(h => h.UserStrategyId).IsUnique();
+
+            modelBuilder.Entity<StrategyHealthSnapshot>()
+                .HasOne(h => h.UserStrategy)
+                .WithMany()
+                .HasForeignKey(h => h.UserStrategyId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<UserStrategy>()
                 .HasOne(us => us.Mt5Account)

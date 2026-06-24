@@ -79,6 +79,13 @@ export class StrategyCreateWizardComponent implements OnInit {
       if (!this.firstFormGroup.get('symbol')?.value) {
         this.firstFormGroup.patchValue({ symbol: 'XAUUSD' }, { emitEvent: false });
       }
+    } else if (provider === 'CoinDCX') {
+      mt5Account?.clearValidators();
+      mt5Account?.setValue('', { emitEvent: false });
+      userExchange?.setValidators([Validators.required]);
+      if (!this.firstFormGroup.get('symbol')?.value || this.firstFormGroup.get('symbol')?.value === 'XAUUSD') {
+        this.firstFormGroup.patchValue({ symbol: 'BTCUSDT' }, { emitEvent: false });
+      }
     } else {
       mt5Account?.clearValidators();
       mt5Account?.setValue('', { emitEvent: false });
@@ -143,7 +150,7 @@ export class StrategyCreateWizardComponent implements OnInit {
       const deployData = {
         strategyId: Number(this.firstFormGroup.value.strategyId),
         executionProvider: this.firstFormGroup.value.executionProvider,
-        userExchangeId: this.firstFormGroup.value.executionProvider === 'Delta' ? Number(this.firstFormGroup.value.userExchangeId) : undefined,
+        userExchangeId: this.firstFormGroup.value.executionProvider !== 'MT5' ? Number(this.firstFormGroup.value.userExchangeId) : undefined,
         mt5AccountId: this.firstFormGroup.value.executionProvider === 'MT5' ? Number(this.firstFormGroup.value.mt5AccountId) : undefined,
         symbol: this.firstFormGroup.value.symbol,
         config: this.secondFormGroup.value.config

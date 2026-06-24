@@ -1,0 +1,27 @@
+[
+  {
+    "name": "Delta Exchange India",
+    "baseUrl": "https://api.india.delta.exchange",
+    "isActive": true
+  },
+  {
+    "name": "Delta Exchange Global",
+    "baseUrl": "https://api.delta.exchange",
+    "isActive": true
+  },
+  {
+    "name": "Delta Exchange Testnet",
+    "baseUrl": "https://testnet-api.delta.exchange",
+    "isActive": true
+  },
+  {
+    "name": "CoinDCX Futures",
+    "baseUrl": "https://api.coindcx.com",
+    "isActive": true
+  },
+  {
+    "name": "Dhan",
+    "baseUrl": "https://api.dhan.co/v2",
+    "isActive": true
+  }
+]

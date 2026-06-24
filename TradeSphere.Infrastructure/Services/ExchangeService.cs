@@ -14,11 +14,15 @@ namespace TradeSphere.Infrastructure.Services
     {
         private readonly ApplicationDbContext _context;
         private readonly IDeltaExchangeClient _deltaClient;
+        private readonly ICoinDcxClient _coinDcxClient;
+        private readonly IDhanClient _dhanClient;
 
-        public ExchangeService(ApplicationDbContext context, IDeltaExchangeClient deltaClient)
+        public ExchangeService(ApplicationDbContext context, IDeltaExchangeClient deltaClient, ICoinDcxClient coinDcxClient, IDhanClient dhanClient)
         {
             _context = context;
             _deltaClient = deltaClient;
+            _coinDcxClient = coinDcxClient;
+            _dhanClient = dhanClient;
         }
 
         public async Task<List<ExchangeDto>> GetSupportedExchangesAsync()
@@ -114,7 +118,11 @@ namespace TradeSphere.Infrastructure.Services
                 var apiKey = EncryptionHelper.Decrypt(userExchange.ApiKey);
                 var apiSecret = EncryptionHelper.Decrypt(userExchange.ApiSecret);
 
-                var result = await _deltaClient.TestConnectionAsync(apiKey, apiSecret, userExchange.Exchange?.BaseUrl);
+                var result = IsDhan(userExchange.Exchange?.Name)
+                    ? MapDhanResult(await _dhanClient.TestConnectionAsync(apiKey, apiSecret))
+                    : IsCoinDcx(userExchange.Exchange?.Name)
+                        ? await _coinDcxClient.TestConnectionAsync(apiKey, apiSecret, userExchange.Exchange?.BaseUrl)
+                        : await _deltaClient.TestConnectionAsync(apiKey, apiSecret, userExchange.Exchange?.BaseUrl);
                 return result;
             }
             catch (System.Exception ex)
@@ -144,6 +152,27 @@ namespace TradeSphere.Infrastructure.Services
         {
             if (string.IsNullOrEmpty(key) || key.Length <= 4) return "****";
             return key.Substring(0, 4) + "****" + key.Substring(key.Length - 4);
+        }
+
+        private static bool IsCoinDcx(string? exchangeName)
+        {
+            return exchangeName?.Contains("CoinDCX", System.StringComparison.OrdinalIgnoreCase) == true;
+        }
+
+        private static bool IsDhan(string? exchangeName)
+        {
+            return exchangeName?.Equals("Dhan", System.StringComparison.OrdinalIgnoreCase) == true;
+        }
+
+        private static ConnectionTestResult MapDhanResult(DhanConnectionTestResultDto result)
+        {
+            return new ConnectionTestResult
+            {
+                Success = result.Success,
+                Message = result.Message,
+                WalletBalance = result.AvailableBalance,
+                Currency = result.Currency
+            };
         }
     }
 }

@@ -15,19 +15,21 @@ namespace TradeSphere.Infrastructure.Services
         private readonly ApplicationDbContext _context;
         private readonly IDeltaExchangeClient _deltaClient;
         private readonly IMt5BridgeClient _mt5BridgeClient;
+        private readonly ICoinDcxClient _coinDcxClient;
 
-        public TradingService(ApplicationDbContext context, IDeltaExchangeClient deltaClient, IMt5BridgeClient mt5BridgeClient)
+        public TradingService(ApplicationDbContext context, IDeltaExchangeClient deltaClient, IMt5BridgeClient mt5BridgeClient, ICoinDcxClient coinDcxClient)
         {
             _context = context;
             _deltaClient = deltaClient;
             _mt5BridgeClient = mt5BridgeClient;
+            _coinDcxClient = coinDcxClient;
         }
 
         public async Task<List<TradeDto>> GetTradesAsync(int userId)
         {
             await SyncMt5ClosedDealsAsync(userId);
 
-            return await _context.Trades
+            var trades = await _context.Trades
                 .Include(t => t.Exchange)
                 .Include(t => t.UserStrategy)
                     .ThenInclude(us => us.Strategy)
@@ -36,6 +38,9 @@ namespace TradeSphere.Infrastructure.Services
                 .Where(t => t.UserId == userId)
                 .OrderByDescending(t => t.CreatedAt)
                 .Take(100)
+                .ToListAsync();
+
+            return trades
                 .Select(t => new TradeDto
                 {
                     Id = t.Id,
@@ -50,19 +55,19 @@ namespace TradeSphere.Infrastructure.Services
                     OrderType = t.OrderType,
                     Price = t.Price,
                     Quantity = t.Quantity,
-                    Status = t.Status,
+                    Status = NormalizeTradeStatus(t),
                     ExecutedAt = t.ExecutedAt,
                     CreatedAt = t.CreatedAt,
-                    Pnl = t.Pnl,
+                    Pnl = IsMt5ExitAuditTrade(t) ? 0m : t.Pnl,
                     ExternalOrderId = t.ExternalOrderId,
                     ErrorReason = t.ErrorReason
                 })
-                .ToListAsync();
+                .ToList();
         }
 
         private async Task SyncMt5ClosedDealsAsync(int userId)
         {
-            var mt5EntryTrades = await _context.Trades
+            var mt5CandidateTrades = await _context.Trades
                 .Include(t => t.UserStrategy)
                     .ThenInclude(us => us.Mt5Account)
                 .Where(t =>
@@ -76,6 +81,10 @@ namespace TradeSphere.Infrastructure.Services
                 .OrderByDescending(t => t.CreatedAt)
                 .Take(50)
                 .ToListAsync();
+
+            var mt5EntryTrades = mt5CandidateTrades
+                .Where(t => IsMt5EntryTrade(t.ExternalOrderId))
+                .ToList();
 
             if (mt5EntryTrades.Count == 0)
             {
@@ -162,23 +171,53 @@ namespace TradeSphere.Infrastructure.Services
             return long.TryParse(digits, out var ticket) ? ticket : 0;
         }
 
+        private static bool IsMt5EntryTrade(string? externalOrderId)
+        {
+            return externalOrderId != null &&
+                   (externalOrderId.StartsWith("Fib-Entry-", StringComparison.OrdinalIgnoreCase) ||
+                    externalOrderId.StartsWith("Entry-", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static string NormalizeTradeStatus(TradeSphere.Domain.Entities.Trade trade)
+        {
+            return IsMt5AlreadyClosedNotice(trade) ? "Reconciled" : trade.Status;
+        }
+
+        private static bool IsMt5AlreadyClosedNotice(TradeSphere.Domain.Entities.Trade trade)
+        {
+            return string.Equals(trade.Status, "Failed", StringComparison.OrdinalIgnoreCase) &&
+                   trade.UserStrategy?.ExecutionProvider == "MT5" &&
+                   trade.ErrorReason != null &&
+                   trade.ErrorReason.Contains("No matching open MT5 position found", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsMt5ExitAuditTrade(TradeSphere.Domain.Entities.Trade trade)
+        {
+            return trade.UserStrategy?.ExecutionProvider == "MT5" &&
+                   trade.ExternalOrderId != null &&
+                   (trade.ExternalOrderId.StartsWith("Fib-Exit-", StringComparison.OrdinalIgnoreCase) ||
+                    trade.ExternalOrderId.StartsWith("Exit-", StringComparison.OrdinalIgnoreCase));
+        }
+
         public async Task<List<PositionDto>> GetPositionsAsync(int userId)
         {
             var positions = new List<PositionDto>();
 
             var userExchanges = await _context.UserExchanges
                 .Include(ue => ue.Exchange)
-                .Where(ue => ue.UserId == userId && ue.Status == "Active" && ue.Exchange.Name.Contains("Delta Exchange"))
+                .Where(ue => ue.UserId == userId && ue.Status == "Active" && (ue.Exchange.Name.Contains("Delta Exchange") || ue.Exchange.Name.Contains("CoinDCX")))
                 .ToListAsync();
 
             foreach (var userExchange in userExchanges)
             {
                 var apiKey = EncryptionHelper.Decrypt(userExchange.ApiKey);
                 var apiSecret = EncryptionHelper.Decrypt(userExchange.ApiSecret);
-                var exchangePositions = await _deltaClient.GetPositionsAsync(apiKey, apiSecret, userExchange.Exchange?.BaseUrl);
+                var exchangePositions = userExchange.Exchange.Name.Contains("CoinDCX", StringComparison.OrdinalIgnoreCase)
+                    ? await _coinDcxClient.GetPositionsAsync(apiKey, apiSecret, userExchange.Exchange?.BaseUrl)
+                    : await _deltaClient.GetPositionsAsync(apiKey, apiSecret, userExchange.Exchange?.BaseUrl);
                 foreach (var position in exchangePositions)
                 {
-                    position.ExchangeName = userExchange.Name;
+                    position.ExchangeName = $"{userExchange.Exchange.Name} - {userExchange.Name}";
                     positions.Add(position);
                 }
             }

@@ -94,6 +94,34 @@
                 <mat-icon style="font-size:13px;height:13px;width:13px;" class="text-green-500">check_circle</mat-icon>
               </span>
             </div>
+
+            <div *ngIf="s.status === 'Running'" class="mt-3 rounded-xl border p-3"
+              [ngClass]="s.health ? getHealthTone(s.health.status) : 'bg-slate-50 text-slate-600 border-slate-200'">
+              <div class="flex flex-wrap items-center gap-2 text-xs font-semibold">
+                <span class="flex items-center gap-1">
+                  <mat-icon style="font-size:14px;height:14px;width:14px;">monitor_heart</mat-icon>
+                  {{ s.health?.status || 'Waiting for first scan' }}
+                </span>
+                <span *ngIf="s.health?.lastCheckedAt" class="font-normal opacity-80">
+                  Last scan: {{ s.health?.lastCheckedAt | date:'shortTime' }}
+                </span>
+                <span *ngIf="s.health?.resolution" class="font-normal opacity-80">
+                  TF: {{ s.health?.resolution }}
+                </span>
+                <span *ngIf="s.health?.price" class="font-normal opacity-80">
+                  Price: {{ s.health?.price | number:'1.2-2' }}
+                </span>
+                <span *ngIf="s.health" class="font-normal opacity-80">
+                  Position: {{ getPositionLabel(s.health.position) }}
+                </span>
+                <span *ngIf="s.health?.suggestedSide" class="px-2 py-0.5 rounded-full bg-white/70">
+                  {{ s.health?.suggestedSide }} signal
+                </span>
+              </div>
+              <p class="mt-1 text-xs leading-5 font-normal">
+                {{ s.health?.reason || 'Engine has not written the first signal snapshot yet. It should appear after the next scan cycle.' }}
+              </p>
+            </div>
           </div>
 
           <!-- Action buttons -->
@@ -148,7 +176,7 @@
           </span>
           <span *ngIf="s.status === 'Running'" class="text-green-600 flex items-center gap-1">
             <mat-icon style="font-size:12px;height:12px;width:12px;">bolt</mat-icon>
-            Live — scanning market every 5s
+            Live - scanning market every 5s
           </span>
         </div>
 

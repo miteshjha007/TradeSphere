@@ -28,6 +28,21 @@ namespace TradeSphere.Application.DTOs
         public string Config { get; set; }
         public string Status { get; set; } // Running, Stopped
         public DateTime? StartedAt { get; set; }
+        public StrategyHealthSnapshotDto? Health { get; set; }
+    }
+
+    public class StrategyHealthSnapshotDto
+    {
+        public DateTime LastCheckedAt { get; set; }
+        public string Symbol { get; set; }
+        public string Resolution { get; set; }
+        public decimal? Price { get; set; }
+        public int Position { get; set; }
+        public bool IsEntryEligible { get; set; }
+        public string? SuggestedSide { get; set; }
+        public string Status { get; set; }
+        public string Reason { get; set; }
+        public string? DetailsJson { get; set; }
     }
 
     public class DeployStrategyDto

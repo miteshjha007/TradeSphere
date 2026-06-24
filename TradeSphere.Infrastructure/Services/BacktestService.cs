@@ -17,12 +17,14 @@ namespace TradeSphere.Infrastructure.Services
         private readonly ApplicationDbContext _context;
         private readonly IDeltaExchangeClient _deltaClient;
         private readonly IMt5BridgeClient _mt5BridgeClient;
+        private readonly ICoinDcxClient _coinDcxClient;
 
-        public BacktestService(ApplicationDbContext context, IDeltaExchangeClient deltaClient, IMt5BridgeClient mt5BridgeClient)
+        public BacktestService(ApplicationDbContext context, IDeltaExchangeClient deltaClient, IMt5BridgeClient mt5BridgeClient, ICoinDcxClient coinDcxClient)
         {
             _context = context;
             _deltaClient = deltaClient;
             _mt5BridgeClient = mt5BridgeClient;
+            _coinDcxClient = coinDcxClient;
         }
 
         public async Task<List<BacktestDto>> GetUserBacktestsAsync(int userId)
@@ -1201,6 +1203,11 @@ namespace TradeSphere.Infrastructure.Services
             long startTime,
             long endTime)
         {
+            if (string.Equals(dto.DataSource, "CoinDCX", StringComparison.OrdinalIgnoreCase))
+            {
+                return await _coinDcxClient.GetCandlesAsync(symbol, resolution, startTime, endTime);
+            }
+
             if (!string.Equals(dto.DataSource, "MT5", StringComparison.OrdinalIgnoreCase))
             {
                 return await _deltaClient.GetCandlesAsync(symbol, resolution, startTime, endTime);

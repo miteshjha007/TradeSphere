@@ -37,27 +37,55 @@ namespace TradeSphere.Infrastructure.Services
 
         public async Task<List<UserStrategyDto>> GetUserStrategiesAsync(int userId)
         {
-            return await _context.UserStrategies
+            var strategies = await _context.UserStrategies
                 .Include(us => us.Strategy)
                 .Include(us => us.Exchange)
                 .Include(us => us.Mt5Account)
                 .Where(us => us.UserId == userId)
-                .Select(us => new UserStrategyDto
-                {
-                    Id = us.Id,
-                    StrategyId = us.StrategyId,
-                    StrategyName = us.Strategy.Name,
-                    ExchangeId = us.ExchangeId,
-                    ExchangeName = us.ExecutionProvider == "MT5" && us.Mt5Account != null ? "MT5" : us.Exchange.Name,
-                    ExecutionProvider = us.ExecutionProvider,
-                    Mt5AccountId = us.Mt5AccountId,
-                    Mt5AccountName = us.Mt5Account != null ? us.Mt5Account.Name : null,
-                    Symbol = us.Symbol,
-                    Config = us.Config,
-                    Status = us.Status,
-                    StartedAt = us.StartedAt
-                })
                 .ToListAsync();
+
+            var strategyIds = strategies.Select(s => s.Id).ToList();
+            var healthByStrategyId = await _context.StrategyHealthSnapshots
+                .Where(h => strategyIds.Contains(h.UserStrategyId))
+                .ToDictionaryAsync(h => h.UserStrategyId);
+
+            return strategies
+                .Select(us =>
+                {
+                    healthByStrategyId.TryGetValue(us.Id, out var health);
+
+                    return new UserStrategyDto
+                    {
+                        Id = us.Id,
+                        StrategyId = us.StrategyId,
+                        StrategyName = us.Strategy.Name,
+                        ExchangeId = us.ExchangeId,
+                        ExchangeName = us.ExecutionProvider == "MT5" && us.Mt5Account != null ? "MT5" : us.Exchange.Name,
+                        ExecutionProvider = us.ExecutionProvider,
+                        Mt5AccountId = us.Mt5AccountId,
+                        Mt5AccountName = us.Mt5Account != null ? us.Mt5Account.Name : null,
+                        Symbol = us.Symbol,
+                        Config = us.Config,
+                        Status = us.Status,
+                        StartedAt = us.StartedAt,
+                        Health = health == null
+                            ? null
+                            : new StrategyHealthSnapshotDto
+                            {
+                                LastCheckedAt = health.LastCheckedAt,
+                                Symbol = health.Symbol,
+                                Resolution = health.Resolution,
+                                Price = health.Price,
+                                Position = health.Position,
+                                IsEntryEligible = health.IsEntryEligible,
+                                SuggestedSide = health.SuggestedSide,
+                                Status = health.Status,
+                                Reason = health.Reason,
+                                DetailsJson = health.DetailsJson
+                            }
+                    };
+                })
+                .ToList();
         }
 
         public async Task<UserStrategyDto> DeployStrategyAsync(int userId, DeployStrategyDto dto)
@@ -100,7 +128,7 @@ namespace TradeSphere.Infrastructure.Services
             else
             {
                 if (!dto.UserExchangeId.HasValue)
-                    throw new System.Exception("Exchange account is required for Delta strategy deployment.");
+                    throw new System.Exception("Exchange account is required for exchange strategy deployment.");
 
                 userExchange = await _context.UserExchanges
                     .Include(ue => ue.Exchange)
@@ -110,7 +138,7 @@ namespace TradeSphere.Infrastructure.Services
                     throw new System.Exception("Exchange account not found or does not belong to this user.");
 
                 exchangeId = userExchange.ExchangeId;
-                provider = "Delta";
+                provider = ResolveExchangeProvider(userExchange.Exchange?.Name, provider);
             }
 
             var userStrategy = new UserStrategy
@@ -223,6 +251,17 @@ namespace TradeSphere.Infrastructure.Services
                 _context.UserStrategies.Remove(strategy);
                 await _context.SaveChangesAsync();
             }
+        }
+
+        private static string ResolveExchangeProvider(string? exchangeName, string requestedProvider)
+        {
+            if (requestedProvider.Equals("CoinDCX", StringComparison.OrdinalIgnoreCase) ||
+                exchangeName?.Contains("CoinDCX", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return "CoinDCX";
+            }
+
+            return "Delta";
         }
     }
 }

@@ -44,17 +44,23 @@ namespace TradeSphere.Infrastructure.Services
                 })
                 .ToListAsync();
 
-            var totalPnl = await _context.Trades
-                .Where(t => t.UserId == userId && t.Status == "Filled")
-                .SumAsync(t => t.Pnl);
+            var totalPnlTrades = await _context.Trades
+                .Include(t => t.UserStrategy)
+                .Where(t => t.UserId == userId && (t.Status == "Filled" || t.Status == "Closed"))
+                .ToListAsync();
+
+            var totalPnl = totalPnlTrades
+                .Where(t => !IsMt5ExitAuditTrade(t))
+                .Sum(t => t.Pnl);
 
             var strategyTrades = await _context.Trades
                 .Include(t => t.UserStrategy)
                     .ThenInclude(us => us.Strategy)
-                .Where(t => t.UserId == userId && t.Status == "Filled" && t.UserStrategyId != null)
+                .Where(t => t.UserId == userId && (t.Status == "Filled" || t.Status == "Closed") && t.UserStrategyId != null)
                 .ToListAsync();
 
             var topStrategies = strategyTrades
+                .Where(t => !IsMt5ExitAuditTrade(t))
                 .GroupBy(t => t.UserStrategy?.Strategy?.Name ?? "Unknown Strategy")
                 .Select(g =>
                 {
@@ -91,6 +97,14 @@ namespace TradeSphere.Infrastructure.Services
             if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m ago";
             if (span.TotalDays < 1) return $"{(int)span.TotalHours}h ago";
             return $"{(int)span.TotalDays}d ago";
+        }
+
+        private static bool IsMt5ExitAuditTrade(TradeSphere.Domain.Entities.Trade trade)
+        {
+            return trade.UserStrategy?.ExecutionProvider == "MT5" &&
+                   trade.ExternalOrderId != null &&
+                   (trade.ExternalOrderId.StartsWith("Fib-Exit-", StringComparison.OrdinalIgnoreCase) ||
+                    trade.ExternalOrderId.StartsWith("Exit-", StringComparison.OrdinalIgnoreCase));
         }
     }
 }

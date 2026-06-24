@@ -52,6 +52,7 @@ namespace TradeSphere.TradingEngine
             {
                 var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                 var deltaClient = scope.ServiceProvider.GetRequiredService<IDeltaExchangeClient>();
+                var coinDcxClient = scope.ServiceProvider.GetRequiredService<ICoinDcxClient>();
                 var mt5BridgeClient = scope.ServiceProvider.GetRequiredService<IMt5BridgeClient>();
                 
                 // Fetch active strategies
@@ -67,10 +68,11 @@ namespace TradeSphere.TradingEngine
                     Trade pendingTrade = null;
                     try
                     {
-                        // Check if it's connected to Delta Exchange (or cosmic for test purposes)
                         var exchangeName = strategy.Exchange?.Name ?? "";
                         var isMt5 = strategy.ExecutionProvider.Equals("MT5", StringComparison.OrdinalIgnoreCase);
-                        if (!isMt5 && !exchangeName.Contains("Delta Exchange") && !exchangeName.Contains("Cosmic Exchange"))
+                        var isCoinDcx = strategy.ExecutionProvider.Equals("CoinDCX", StringComparison.OrdinalIgnoreCase) ||
+                            exchangeName.Contains("CoinDCX", StringComparison.OrdinalIgnoreCase);
+                        if (!isMt5 && !isCoinDcx && !exchangeName.Contains("Delta Exchange") && !exchangeName.Contains("Cosmic Exchange"))
                         {
                             continue;
                         }
@@ -120,9 +122,13 @@ namespace TradeSphere.TradingEngine
 
                             var dailyCandles = isMt5
                                 ? await GetMt5CandlesAsync(mt5BridgeClient, strategy.Mt5Account!, mt5Password!, brokerSymbol, "1d", dailyStart, nowSec, stoppingToken)
+                                : isCoinDcx
+                                    ? await coinDcxClient.GetCandlesAsync(strategy.Symbol, "1d", dailyStart, nowSec)
                                 : await deltaClient.GetCandlesAsync(strategy.Symbol, "1d", dailyStart, nowSec, strategy.Exchange?.BaseUrl);
                             var intradayCandles = isMt5
                                 ? await GetMt5CandlesAsync(mt5BridgeClient, strategy.Mt5Account!, mt5Password!, brokerSymbol, config.resolution, intradayStart, nowSec, stoppingToken)
+                                : isCoinDcx
+                                    ? await coinDcxClient.GetCandlesAsync(strategy.Symbol, config.resolution, intradayStart, nowSec)
                                 : await deltaClient.GetCandlesAsync(strategy.Symbol, config.resolution, intradayStart, nowSec, strategy.Exchange?.BaseUrl);
 
                             if (dailyCandles.Count < 2 || intradayCandles.Count < config.emaLength + 5)
@@ -214,10 +220,34 @@ namespace TradeSphere.TradingEngine
 
                             var currentPrice = isMt5
                                 ? await GetMt5ExecutionPriceAsync(mt5BridgeClient, strategy.Mt5Account!, mt5Password!, brokerSymbol, "Buy", stoppingToken)
+                                : isCoinDcx
+                                    ? await coinDcxClient.GetTickerPriceAsync(strategy.Symbol) ?? 0m
                                 : await deltaClient.GetTickerPriceAsync(strategy.Symbol, strategy.Exchange?.BaseUrl) ?? 0m;
                             if (currentPrice == 0)
                             {
                                 _logger.LogWarning($"Could not fetch ticker price for {strategy.Symbol}. Skipping this evaluation.");
+                                continue;
+                            }
+
+                            if (isCoinDcx)
+                            {
+                                await ProcessCoinDcxHaEmaOrdersAsync(
+                                    context,
+                                    coinDcxClient,
+                                    strategy,
+                                    config,
+                                    lastTrade,
+                                    currentPosition,
+                                    currentPrice,
+                                    crossAboveUpper,
+                                    crossBelowLower,
+                                    dailyBias,
+                                    isInSession,
+                                    isPastSquareOff,
+                                    emaLow[n - 2],
+                                    emaHigh[n - 2],
+                                    atr[n - 2],
+                                    stoppingToken);
                                 continue;
                             }
 
@@ -446,9 +476,11 @@ namespace TradeSphere.TradingEngine
                             await ProcessFib55EmaStrategyAsync(
                                 context,
                                 deltaClient,
+                                coinDcxClient,
                                 mt5BridgeClient,
                                 strategy,
                                 isMt5,
+                                isCoinDcx,
                                 stoppingToken);
                             continue;
                         }
@@ -557,6 +589,144 @@ namespace TradeSphere.TradingEngine
             return string.IsNullOrWhiteSpace(mapping?.BrokerSymbol) ? strategySymbol : mapping.BrokerSymbol;
         }
 
+        private async Task ProcessCoinDcxHaEmaOrdersAsync(
+            ApplicationDbContext context,
+            ICoinDcxClient coinDcxClient,
+            UserStrategy strategy,
+            StrategyConfig config,
+            Trade? lastTrade,
+            int currentPosition,
+            decimal currentPrice,
+            bool crossAboveUpper,
+            bool crossBelowLower,
+            int dailyBias,
+            bool isInSession,
+            bool isPastSquareOff,
+            decimal emaLow,
+            decimal emaHigh,
+            decimal atr,
+            CancellationToken cancellationToken)
+        {
+            var userExchange = await GetStrategyUserExchangeAsync(context, strategy, cancellationToken);
+            var apiKey = EncryptionHelper.Decrypt(userExchange.ApiKey);
+            var apiSecret = EncryptionHelper.Decrypt(userExchange.ApiSecret);
+            var contractValue = await coinDcxClient.GetContractValueAsync(strategy.Symbol) ?? 1m;
+            decimal slPrice = 0m;
+            decimal tpPrice = 0m;
+
+            if (lastTrade?.ExternalOrderId != null)
+            {
+                (slPrice, tpPrice) = ParseRiskLevels(lastTrade.ExternalOrderId);
+            }
+
+            if (currentPosition == 0)
+            {
+                if (dailyBias == 1 && crossAboveUpper && isInSession && !isPastSquareOff)
+                {
+                    var quantity = CalculateOrderQuantity(config, currentPrice, contractValue, strategy.Symbol);
+                    slPrice = config.useATRSL ? currentPrice - (config.atrMultiplier * atr) : emaLow;
+                    var riskAmount = currentPrice - slPrice;
+                    if (riskAmount <= 0m) riskAmount = atr * config.atrMultiplier;
+                    tpPrice = currentPrice + (riskAmount * config.rrRatio);
+                    await PlaceCoinDcxHaEmaOrderAsync(context, coinDcxClient, strategy, apiKey, apiSecret, config, "Buy", currentPrice, quantity, $"Entry-Long|SL:{slPrice:F2}|TP:{tpPrice:F2}", cancellationToken, stopLoss: slPrice, takeProfit: tpPrice);
+                }
+                else if (dailyBias == -1 && crossBelowLower && isInSession && !isPastSquareOff)
+                {
+                    var quantity = CalculateOrderQuantity(config, currentPrice, contractValue, strategy.Symbol);
+                    slPrice = config.useATRSL ? currentPrice + (config.atrMultiplier * atr) : emaHigh;
+                    var riskAmount = slPrice - currentPrice;
+                    if (riskAmount <= 0m) riskAmount = atr * config.atrMultiplier;
+                    tpPrice = currentPrice - (riskAmount * config.rrRatio);
+                    await PlaceCoinDcxHaEmaOrderAsync(context, coinDcxClient, strategy, apiKey, apiSecret, config, "Sell", currentPrice, quantity, $"Entry-Short|SL:{slPrice:F2}|TP:{tpPrice:F2}", cancellationToken, stopLoss: slPrice, takeProfit: tpPrice);
+                }
+
+                return;
+            }
+
+            var exitTriggered = false;
+            var exitReason = "";
+            var exitSide = currentPosition == 1 ? "Sell" : "Buy";
+
+            if (isPastSquareOff)
+            {
+                exitTriggered = true;
+                exitReason = "Square-Off";
+            }
+            else if (currentPosition == 1 && config.exitMode == "Band-Based Exit" && currentPrice < emaLow)
+            {
+                exitTriggered = true;
+                exitReason = "Band-Exit";
+            }
+            else if (currentPosition == -1 && config.exitMode == "Band-Based Exit" && currentPrice > emaHigh)
+            {
+                exitTriggered = true;
+                exitReason = "Band-Exit";
+            }
+            else if (config.exitMode == "Fixed Risk-Reward Exit")
+            {
+                if (currentPosition == 1 && slPrice > 0m && currentPrice <= slPrice) { exitTriggered = true; exitReason = "Stop-Loss"; }
+                else if (currentPosition == 1 && tpPrice > 0m && currentPrice >= tpPrice) { exitTriggered = true; exitReason = "Take-Profit"; }
+                else if (currentPosition == -1 && slPrice > 0m && currentPrice >= slPrice) { exitTriggered = true; exitReason = "Stop-Loss"; }
+                else if (currentPosition == -1 && tpPrice > 0m && currentPrice <= tpPrice) { exitTriggered = true; exitReason = "Take-Profit"; }
+            }
+
+            if (!exitTriggered)
+            {
+                return;
+            }
+
+            var quantityToClose = lastTrade?.Quantity ?? 1m;
+            var externalOrderId = currentPosition == 1
+                ? $"Exit-Long|Reason:{exitReason}"
+                : $"Exit-Short|Reason:{exitReason}";
+            await PlaceCoinDcxHaEmaOrderAsync(context, coinDcxClient, strategy, apiKey, apiSecret, config, exitSide, currentPrice, quantityToClose, externalOrderId, cancellationToken, lastTrade, contractValue);
+        }
+
+        private async Task PlaceCoinDcxHaEmaOrderAsync(
+            ApplicationDbContext context,
+            ICoinDcxClient coinDcxClient,
+            UserStrategy strategy,
+            string apiKey,
+            string apiSecret,
+            StrategyConfig config,
+            string side,
+            decimal price,
+            decimal quantity,
+            string externalOrderId,
+            CancellationToken cancellationToken,
+            Trade? entryTrade = null,
+            decimal contractValue = 1m,
+            decimal? stopLoss = null,
+            decimal? takeProfit = null)
+        {
+            var trade = CreateTradeAttempt(strategy, side, price, quantity, externalOrderId);
+            try
+            {
+                var apiResponse = await coinDcxClient.PlaceMarketOrderAsync(apiKey, apiSecret, strategy.Symbol, side, quantity, config.leverage, takeProfit, stopLoss, strategy.Exchange?.BaseUrl);
+                trade.Status = "Filled";
+                trade.ExecutedAt = DateTime.UtcNow;
+                trade.BrokerResponse = apiResponse;
+                trade.ExternalOrderId = externalOrderId;
+
+                if (entryTrade != null)
+                {
+                    var entryPrice = entryTrade.Price ?? price;
+                    trade.Pnl = side.Equals("Sell", StringComparison.OrdinalIgnoreCase)
+                        ? (price - entryPrice) * quantity * contractValue
+                        : (entryPrice - price) * quantity * contractValue;
+                }
+            }
+            catch (Exception ex)
+            {
+                trade.Status = "Failed";
+                trade.ErrorReason = NormalizeOrderError(ex.Message);
+                trade.BrokerResponse = ex.Message;
+            }
+
+            context.Trades.Add(trade);
+            await context.SaveChangesAsync(cancellationToken);
+        }
+
         private async Task ProcessMt5HaEmaOrdersAsync(
             ApplicationDbContext context,
             IMt5BridgeClient mt5BridgeClient,
@@ -624,9 +794,11 @@ namespace TradeSphere.TradingEngine
         private async Task ProcessFib55EmaStrategyAsync(
             ApplicationDbContext context,
             IDeltaExchangeClient deltaClient,
+            ICoinDcxClient coinDcxClient,
             IMt5BridgeClient mt5BridgeClient,
             UserStrategy strategy,
             bool isMt5,
+            bool isCoinDcx,
             CancellationToken cancellationToken)
         {
             var config = JsonSerializer.Deserialize<Fib55EmaConfig>(strategy.Config) ?? new Fib55EmaConfig();
@@ -650,9 +822,13 @@ namespace TradeSphere.TradingEngine
 
             var candles = isMt5
                 ? await GetMt5CandlesAsync(mt5BridgeClient, strategy.Mt5Account!, mt5Password!, brokerSymbol, config.resolution, historyStart, nowSec, cancellationToken)
+                : isCoinDcx
+                    ? await coinDcxClient.GetCandlesAsync(strategy.Symbol, NormalizeResolution(config.resolution), historyStart, nowSec)
                 : await deltaClient.GetCandlesAsync(strategy.Symbol, NormalizeResolution(config.resolution), historyStart, nowSec, strategy.Exchange?.BaseUrl);
             var htfCandles = isMt5
                 ? await GetMt5CandlesAsync(mt5BridgeClient, strategy.Mt5Account!, mt5Password!, brokerSymbol, htfResolution, historyStart, nowSec, cancellationToken)
+                : isCoinDcx
+                    ? await coinDcxClient.GetCandlesAsync(strategy.Symbol, htfResolution, historyStart, nowSec)
                 : await deltaClient.GetCandlesAsync(strategy.Symbol, htfResolution, historyStart, nowSec, strategy.Exchange?.BaseUrl);
 
             candles = candles.OrderBy(c => c.Time).ToList();
@@ -667,6 +843,24 @@ namespace TradeSphere.TradingEngine
                     htfCandles.Count,
                     config.resolution,
                     htfResolution);
+                await UpsertStrategyHealthAsync(
+                    context,
+                    strategy,
+                    config.resolution,
+                    null,
+                    0,
+                    false,
+                    null,
+                    "Waiting for data",
+                    $"Insufficient candles. LTF={candles.Count}, HTF={htfCandles.Count}, required LTF={config.emaLength + 5}, required HTF={config.emaLength + 2}.",
+                    JsonSerializer.Serialize(new
+                    {
+                        candles = candles.Count,
+                        htfCandles = htfCandles.Count,
+                        config.emaLength,
+                        htfResolution
+                    }),
+                    cancellationToken);
                 return;
             }
 
@@ -674,6 +868,18 @@ namespace TradeSphere.TradingEngine
             if (signal == null)
             {
                 _logger.LogInformation("Fib signal check {Symbol} {Resolution}: no completed candle ready for evaluation.", strategy.Symbol, config.resolution);
+                await UpsertStrategyHealthAsync(
+                    context,
+                    strategy,
+                    config.resolution,
+                    null,
+                    0,
+                    false,
+                    null,
+                    "Waiting for candle",
+                    "No completed candle is ready for evaluation yet.",
+                    null,
+                    cancellationToken);
                 return;
             }
 
@@ -690,10 +896,24 @@ namespace TradeSphere.TradingEngine
                     : signal.Sell ? "Sell" : "Buy";
             var currentPrice = isMt5
                 ? await GetMt5ExecutionPriceAsync(mt5BridgeClient, strategy.Mt5Account!, mt5Password!, brokerSymbol, priceSide, cancellationToken)
+                : isCoinDcx
+                    ? await coinDcxClient.GetTickerPriceAsync(strategy.Symbol) ?? signal.CurrentPrice
                 : await deltaClient.GetTickerPriceAsync(strategy.Symbol, strategy.Exchange?.BaseUrl) ?? signal.CurrentPrice;
             if (currentPrice <= 0m)
             {
                 _logger.LogWarning("Could not fetch executable price for Fib strategy {Symbol}.", strategy.Symbol);
+                await UpsertStrategyHealthAsync(
+                    context,
+                    strategy,
+                    config.resolution,
+                    signal.CurrentPrice,
+                    currentPosition,
+                    false,
+                    null,
+                    "Waiting for price",
+                    "Could not fetch executable broker price.",
+                    BuildFibSignalDetailsJson(signal, config),
+                    cancellationToken);
                 return;
             }
 
@@ -714,6 +934,20 @@ namespace TradeSphere.TradingEngine
                 signal.Buy,
                 signal.Sell,
                 currentPosition);
+
+            var health = BuildFibHealth(signal, config, currentPosition);
+            await UpsertStrategyHealthAsync(
+                context,
+                strategy,
+                config.resolution,
+                currentPrice,
+                currentPosition,
+                signal.Buy || signal.Sell,
+                signal.Buy ? "Buy" : signal.Sell ? "Sell" : null,
+                health.status,
+                health.reason,
+                BuildFibSignalDetailsJson(signal, config),
+                cancellationToken);
 
             if (currentPosition == 0)
             {
@@ -740,6 +974,12 @@ namespace TradeSphere.TradingEngine
                 if (isMt5)
                 {
                     await PlaceMt5OrderAndRecordAsync(context, mt5BridgeClient, strategy, brokerSymbol, mt5Password!, side, currentPrice, CalculateMt5Volume(config), sl, tp, externalId, cancellationToken);
+                    return;
+                }
+
+                if (isCoinDcx)
+                {
+                    await PlaceCoinDcxOrderAndRecordAsync(context, coinDcxClient, strategy, config, side, currentPrice, externalId, cancellationToken, stopLoss: sl, takeProfit: tp);
                     return;
                 }
 
@@ -796,7 +1036,95 @@ namespace TradeSphere.TradingEngine
                 return;
             }
 
+            if (isCoinDcx)
+            {
+                await PlaceCoinDcxOrderAndRecordAsync(context, coinDcxClient, strategy, config, exitSide, currentPrice, exitExternalId, cancellationToken, lastFilledTrade);
+                return;
+            }
+
             await PlaceDeltaOrderAndRecordAsync(context, deltaClient, strategy, config, exitSide, currentPrice, exitExternalId, cancellationToken, lastFilledTrade);
+        }
+
+        private async Task PlaceCoinDcxOrderAndRecordAsync(
+            ApplicationDbContext context,
+            ICoinDcxClient coinDcxClient,
+            UserStrategy strategy,
+            Fib55EmaConfig config,
+            string side,
+            decimal price,
+            string externalOrderId,
+            CancellationToken cancellationToken,
+            Trade? entryTrade = null,
+            decimal? stopLoss = null,
+            decimal? takeProfit = null)
+        {
+            Trade? trade = null;
+            try
+            {
+                var userExchange = await GetStrategyUserExchangeAsync(context, strategy, cancellationToken);
+                var apiKey = EncryptionHelper.Decrypt(userExchange.ApiKey);
+                var apiSecret = EncryptionHelper.Decrypt(userExchange.ApiSecret);
+                var contractValue = await coinDcxClient.GetContractValueAsync(strategy.Symbol) ?? 1m;
+                var quantity = entryTrade?.Quantity ?? CalculateOrderQuantity(ToStrategyConfig(config), price, contractValue, strategy.Symbol);
+
+                trade = CreateTradeAttempt(strategy, side, price, quantity, externalOrderId);
+                var apiResponse = await coinDcxClient.PlaceMarketOrderAsync(
+                    apiKey,
+                    apiSecret,
+                    strategy.Symbol,
+                    side,
+                    quantity,
+                    config.leverage,
+                    takeProfit,
+                    stopLoss,
+                    strategy.Exchange?.BaseUrl);
+
+                trade.Status = "Filled";
+                trade.ExecutedAt = DateTime.UtcNow;
+                trade.BrokerResponse = apiResponse;
+                trade.ExternalOrderId = externalOrderId;
+
+                if (entryTrade != null)
+                {
+                    var entryPrice = entryTrade.Price ?? price;
+                    trade.Pnl = side.Equals("Sell", StringComparison.OrdinalIgnoreCase)
+                        ? (price - entryPrice) * quantity * contractValue
+                        : (entryPrice - price) * quantity * contractValue;
+                }
+
+                context.Trades.Add(trade);
+                await context.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "CoinDCX Fib order failed for strategy {StrategyId} {Symbol}.", strategy.Id, strategy.Symbol);
+                trade ??= CreateTradeAttempt(strategy, side, price, entryTrade?.Quantity ?? 0m, externalOrderId);
+                trade.Status = "Failed";
+                trade.ErrorReason = NormalizeOrderError(ex.Message);
+                trade.BrokerResponse = ex.Message;
+                trade.UpdatedAt = DateTime.UtcNow;
+                context.Trades.Add(trade);
+                await context.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        private static async Task<UserExchange> GetStrategyUserExchangeAsync(ApplicationDbContext context, UserStrategy strategy, CancellationToken cancellationToken)
+        {
+            var query = context.UserExchanges
+                .Where(ue => ue.UserId == strategy.UserId && ue.ExchangeId == strategy.ExchangeId);
+
+            if (strategy.UserExchangeId.HasValue)
+            {
+                query = query.Where(ue => ue.Id == strategy.UserExchangeId.Value);
+            }
+
+            var userExchange = await query.FirstOrDefaultAsync(cancellationToken);
+            if (userExchange == null)
+            {
+                throw new Exception($"No connected exchange keys found for UserId {strategy.UserId}, ExchangeId {strategy.ExchangeId}, UserExchangeId {strategy.UserExchangeId}.");
+            }
+
+            return userExchange;
         }
 
         private async Task PlaceDeltaOrderAndRecordAsync(
@@ -941,7 +1269,13 @@ namespace TradeSphere.TradingEngine
                 var position = await FindOpenMt5PositionAsync(mt5BridgeClient, strategy.Mt5Account, password, brokerSymbol, entryTrade, cancellationToken);
                 if (position == null)
                 {
-                    throw new Exception($"No matching open MT5 position found for {brokerSymbol}. The position may already be closed manually or by SL/TP.");
+                    trade.Status = "Reconciled";
+                    trade.ErrorReason = $"No matching open MT5 position found for {brokerSymbol}. The position may already be closed manually or by SL/TP.";
+                    trade.BrokerResponse = trade.ErrorReason;
+                    trade.UpdatedAt = DateTime.UtcNow;
+                    context.Trades.Add(trade);
+                    await context.SaveChangesAsync(cancellationToken);
+                    return;
                 }
 
                 volume = volume <= 0m ? position.Volume : Math.Min(volume, position.Volume);
@@ -1360,6 +1694,117 @@ namespace TradeSphere.TradingEngine
                 isInSession,
                 isPastSquareOff,
                 status);
+        }
+
+        private async Task UpsertStrategyHealthAsync(
+            ApplicationDbContext context,
+            UserStrategy strategy,
+            string resolution,
+            decimal? price,
+            int position,
+            bool isEntryEligible,
+            string? suggestedSide,
+            string status,
+            string reason,
+            string? detailsJson,
+            CancellationToken cancellationToken)
+        {
+            var snapshot = await context.StrategyHealthSnapshots
+                .FirstOrDefaultAsync(h => h.UserStrategyId == strategy.Id, cancellationToken);
+
+            if (snapshot == null)
+            {
+                snapshot = new StrategyHealthSnapshot
+                {
+                    UserStrategyId = strategy.Id,
+                    CreatedAt = DateTime.UtcNow
+                };
+                context.StrategyHealthSnapshots.Add(snapshot);
+            }
+
+            snapshot.Symbol = strategy.Symbol;
+            snapshot.Resolution = resolution;
+            snapshot.LastCheckedAt = DateTime.UtcNow;
+            snapshot.Price = price;
+            snapshot.Position = position;
+            snapshot.IsEntryEligible = isEntryEligible;
+            snapshot.SuggestedSide = suggestedSide;
+            snapshot.Status = status;
+            snapshot.Reason = reason;
+            snapshot.DetailsJson = detailsJson;
+            snapshot.UpdatedAt = DateTime.UtcNow;
+
+            await context.SaveChangesAsync(cancellationToken);
+        }
+
+        private static (string status, string reason) BuildFibHealth(Fib55Signal signal, Fib55EmaConfig config, int position)
+        {
+            if (position == 1)
+            {
+                return ("Managing long", "Long position is open. Engine is monitoring stop-loss/take-profit exit conditions.");
+            }
+
+            if (position == -1)
+            {
+                return ("Managing short", "Short position is open. Engine is monitoring stop-loss/take-profit exit conditions.");
+            }
+
+            if (signal.Buy)
+            {
+                return ("Entry ready", "Buy signal is eligible. Engine will submit order on this scan.");
+            }
+
+            if (signal.Sell)
+            {
+                return ("Entry ready", "Sell signal is eligible. Engine will submit order on this scan.");
+            }
+
+            var buyBlocks = new List<string>();
+            if (!signal.HtfBull) buyBlocks.Add("HTF is not bullish");
+            if (!signal.LtfBull) buyBlocks.Add("LTF is not bullish");
+            if (!signal.HourlyGreen) buyBlocks.Add("HTF candle is not green");
+            if (!signal.NearBuyFib) buyBlocks.Add("price is not near buy Fib zone");
+            if (!signal.Bounce) buyBlocks.Add("bounce candle not confirmed");
+            if (!(signal.Rsi >= config.rsiBuyMin && signal.Rsi < 70m)) buyBlocks.Add($"RSI not in buy range ({config.rsiBuyMin}-70)");
+
+            var sellBlocks = new List<string>();
+            if (!signal.HtfBear) sellBlocks.Add("HTF is not bearish");
+            if (!signal.LtfBear) sellBlocks.Add("LTF is not bearish");
+            if (!signal.HourlyRed) sellBlocks.Add("HTF candle is not red");
+            if (!signal.NearSellFib) sellBlocks.Add("price is not near sell Fib zone");
+            if (!signal.Rejection) sellBlocks.Add("rejection candle not confirmed");
+            if (!(signal.Rsi <= config.rsiSellMax && signal.Rsi > 30m)) sellBlocks.Add($"RSI not in sell range (30-{config.rsiSellMax})");
+
+            var buyReason = buyBlocks.Count == 0 ? "ready" : string.Join(", ", buyBlocks);
+            var sellReason = sellBlocks.Count == 0 ? "ready" : string.Join(", ", sellBlocks);
+
+            return ("Waiting for signal", $"Buy blocked by: {buyReason}. Sell blocked by: {sellReason}.");
+        }
+
+        private static string BuildFibSignalDetailsJson(Fib55Signal signal, Fib55EmaConfig config)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                signal.CurrentPrice,
+                signal.HtfBull,
+                signal.HtfBear,
+                signal.LtfBull,
+                signal.LtfBear,
+                signal.HourlyGreen,
+                signal.HourlyRed,
+                signal.NearBuyFib,
+                signal.NearSellFib,
+                signal.Bounce,
+                signal.Rejection,
+                signal.Rsi,
+                signal.Buy,
+                signal.Sell,
+                config.rsiBuyMin,
+                config.rsiSellMax,
+                config.zoneBuffer,
+                config.stopLossPct,
+                config.tp2RiskReward
+            });
         }
 
         private decimal CalculateOrderQuantity(StrategyConfig config, decimal currentPrice, decimal contractValue, string symbol)

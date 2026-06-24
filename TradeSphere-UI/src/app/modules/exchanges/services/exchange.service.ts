@@ -9,6 +9,10 @@ export interface ConnectionTestResult {
   message: string;
   walletBalance?: number;
   currency?: string;
+  coinsBalance?: number;
+  coinsCurrency?: string;
+  futuresBalance?: number;
+  futuresCurrency?: string;
 }
 
 @Injectable({

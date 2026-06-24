@@ -55,7 +55,7 @@ export class AnalyticsComponent implements OnInit {
 
   statusClass(status: string): string {
     if (status === 'Filled' || status === 'Open' || status === 'Closed') return 'bg-green-50 text-green-700 border-green-200';
-    if (status === 'Pending') return 'bg-amber-50 text-amber-700 border-amber-200';
+    if (status === 'Pending' || status === 'Reconciled') return 'bg-amber-50 text-amber-700 border-amber-200';
     if (status === 'Failed') return 'bg-red-50 text-red-700 border-red-200';
     return 'bg-gray-50 text-gray-700 border-gray-200';
   }

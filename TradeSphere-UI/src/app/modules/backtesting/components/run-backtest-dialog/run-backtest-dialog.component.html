@@ -30,12 +30,18 @@
         </div>
 
         <!-- Data Source -->
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-3 gap-3">
             <label class="cursor-pointer rounded-xl border p-3 transition-all"
                 [ngClass]="form.get('dataSource')?.value === 'Delta' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:bg-white'">
                 <input type="radio" class="hidden" formControlName="dataSource" value="Delta">
                 <div class="text-sm font-semibold text-gray-800">Delta Data</div>
                 <div class="text-xs text-gray-500">BTCUSD / ETHUSD candles</div>
+            </label>
+            <label class="cursor-pointer rounded-xl border p-3 transition-all"
+                [ngClass]="form.get('dataSource')?.value === 'CoinDCX' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:bg-white'">
+                <input type="radio" class="hidden" formControlName="dataSource" value="CoinDCX">
+                <div class="text-sm font-semibold text-gray-800">CoinDCX Data</div>
+                <div class="text-xs text-gray-500">BTCUSDT futures candles</div>
             </label>
             <label class="cursor-pointer rounded-xl border p-3 transition-all"
                 [ngClass]="form.get('dataSource')?.value === 'MT5' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:bg-white'">

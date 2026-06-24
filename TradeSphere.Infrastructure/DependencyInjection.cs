@@ -27,10 +27,15 @@ namespace TradeSphere.Infrastructure
             services.AddScoped<IBacktestService, Services.BacktestService>();
             services.AddScoped<IMt5Service, Services.Mt5Service>();
             services.AddScoped<IPropFirmService, Services.PropFirmService>();
+            services.AddScoped<IIndianMarketService, Services.IndianMarketService>();
+            services.AddHttpClient<IStockPickService, Services.StockPickService>();
             services.AddHttpClient<IMt5BridgeClient, Services.Mt5BridgeClient>();
             
             // Register Delta Exchange REST Client
             services.AddHttpClient<IDeltaExchangeClient, Services.DeltaExchangeClient>();
+            services.AddHttpClient<ICoinDcxClient, Services.CoinDcxClient>();
+            services.AddHttpClient<IDhanClient, Services.DhanClient>();
+            services.AddHttpClient<IIpoService, Services.IpoService>();
 
             return services;
         }

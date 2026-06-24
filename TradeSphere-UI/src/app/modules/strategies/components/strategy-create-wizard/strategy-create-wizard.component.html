@@ -26,7 +26,7 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mt-2">
                         <div class="flex flex-col gap-1.5 md:col-span-2">
                             <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Execution Target</label>
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                 <label class="cursor-pointer rounded-2xl border p-4 transition"
                                     [ngClass]="firstFormGroup.get('executionProvider')?.value === 'Delta' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:bg-white'">
                                     <input type="radio" class="hidden" formControlName="executionProvider" value="Delta">
@@ -35,6 +35,17 @@
                                         <div>
                                             <div class="font-semibold text-gray-800">Delta Exchange</div>
                                             <div class="text-xs text-gray-500">Use connected Delta API keys</div>
+                                        </div>
+                                    </div>
+                                </label>
+                                <label class="cursor-pointer rounded-2xl border p-4 transition"
+                                    [ngClass]="firstFormGroup.get('executionProvider')?.value === 'CoinDCX' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-gray-50 hover:bg-white'">
+                                    <input type="radio" class="hidden" formControlName="executionProvider" value="CoinDCX">
+                                    <div class="flex items-center gap-3">
+                                        <mat-icon class="text-orange-500">account_balance_wallet</mat-icon>
+                                        <div>
+                                            <div class="font-semibold text-gray-800">CoinDCX</div>
+                                            <div class="text-xs text-gray-500">Use connected CoinDCX futures API</div>
                                         </div>
                                     </div>
                                 </label>
@@ -71,7 +82,7 @@
                         </div>
 
                         <!-- Exchange Account Selection -->
-                        <div class="flex flex-col gap-1.5" *ngIf="firstFormGroup.get('executionProvider')?.value === 'Delta'">
+                        <div class="flex flex-col gap-1.5" *ngIf="firstFormGroup.get('executionProvider')?.value !== 'MT5'">
                             <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Exchange Account</label>
                             <div class="relative flex items-center">
                                 <select formControlName="userExchangeId"
@@ -112,7 +123,7 @@
                         <!-- Trading Pair / Symbol -->
                         <div class="flex flex-col gap-1.5 md:col-span-2">
                             <label class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Trading Pair (Symbol)</label>
-                            <input type="text" formControlName="symbol" [placeholder]="firstFormGroup.get('executionProvider')?.value === 'MT5' ? 'e.g. XAUUSD' : 'e.g. BTCUSD'"
+                            <input type="text" formControlName="symbol" [placeholder]="firstFormGroup.get('executionProvider')?.value === 'MT5' ? 'e.g. XAUUSD' : (firstFormGroup.get('executionProvider')?.value === 'CoinDCX' ? 'e.g. BTCUSDT' : 'e.g. BTCUSD')"
                                 class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 outline-none text-sm text-gray-700 placeholder-gray-400"
                                 [class.border-red-500]="firstFormGroup.get('symbol')?.invalid && firstFormGroup.get('symbol')?.touched">
                             <div *ngIf="firstFormGroup.get('symbol')?.invalid && firstFormGroup.get('symbol')?.touched" class="text-xs text-red-500 font-medium">
