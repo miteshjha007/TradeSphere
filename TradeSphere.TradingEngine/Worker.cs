@@ -77,6 +77,11 @@ namespace TradeSphere.TradingEngine
                             continue;
                         }
 
+                        if (isMt5)
+                        {
+                            await ApplyMt5BreakEvenAndTrailingAsync(context, mt5BridgeClient, strategy, stoppingToken);
+                        }
+
                         // Fetch the last trade for this strategy to apply a trading cooldown (60 seconds)
                         var lastTrade = await context.Trades
                             .Where(t => t.UserStrategyId == strategy.Id)
@@ -889,6 +894,21 @@ namespace TradeSphere.TradingEngine
                 .FirstOrDefaultAsync(cancellationToken);
 
             var currentPosition = GetPositionFromTrade(lastFilledTrade, "Fib-Entry-");
+            if (isMt5 && currentPosition != 0 && lastFilledTrade != null)
+            {
+                var openPosition = await FindOpenMt5PositionAsync(mt5BridgeClient, strategy.Mt5Account!, mt5Password!, brokerSymbol, lastFilledTrade, cancellationToken);
+                if (openPosition == null)
+                {
+                    lastFilledTrade.Status = "Reconciled";
+                    lastFilledTrade.ErrorReason = "MT5 position is already closed on broker. Awaiting report history sync for final P/L.";
+                    lastFilledTrade.UpdatedAt = DateTime.UtcNow;
+                    await context.SaveChangesAsync(cancellationToken);
+
+                    currentPosition = 0;
+                    lastFilledTrade = null;
+                }
+            }
+
             var priceSide = currentPosition == 1
                 ? "Sell"
                 : currentPosition == -1
@@ -1269,12 +1289,11 @@ namespace TradeSphere.TradingEngine
                 var position = await FindOpenMt5PositionAsync(mt5BridgeClient, strategy.Mt5Account, password, brokerSymbol, entryTrade, cancellationToken);
                 if (position == null)
                 {
-                    trade.Status = "Reconciled";
-                    trade.ErrorReason = $"No matching open MT5 position found for {brokerSymbol}. The position may already be closed manually or by SL/TP.";
-                    trade.BrokerResponse = trade.ErrorReason;
-                    trade.UpdatedAt = DateTime.UtcNow;
-                    context.Trades.Add(trade);
-                    await context.SaveChangesAsync(cancellationToken);
+                    _logger.LogInformation(
+                        "Skipping MT5 close audit for strategy {StrategyId} {Symbol}: no matching open position for entry {EntryTradeId}. It may already be closed by SL/TP or manual action.",
+                        strategy.Id,
+                        brokerSymbol,
+                        entryTrade?.Id);
                     return;
                 }
 
@@ -1311,6 +1330,150 @@ namespace TradeSphere.TradingEngine
                 trade.ErrorReason = NormalizeOrderError(ex.Message);
                 trade.BrokerResponse = ex.Message;
             }
+
+            context.Trades.Add(trade);
+            await context.SaveChangesAsync(cancellationToken);
+        }
+
+        private async Task ApplyMt5BreakEvenAndTrailingAsync(
+            ApplicationDbContext context,
+            IMt5BridgeClient mt5BridgeClient,
+            UserStrategy strategy,
+            CancellationToken cancellationToken)
+        {
+            if (strategy.Mt5Account == null || !strategy.Mt5Account.TradingEnabled)
+            {
+                return;
+            }
+
+            var riskConfig = ParseMt5RiskManagementConfig(strategy.Config);
+            if (!riskConfig.useBreakEven && !riskConfig.useTrailingStop)
+            {
+                return;
+            }
+
+            var recentFilledTrades = await context.Trades
+                .Where(t =>
+                    t.UserStrategyId == strategy.Id &&
+                    t.Status == "Filled" &&
+                    t.ExternalOrderId != null)
+                .OrderByDescending(t => t.CreatedAt)
+                .Take(20)
+                .ToListAsync(cancellationToken);
+
+            var entryTrade = recentFilledTrades
+                .FirstOrDefault(t =>
+                    t.ExternalOrderId != null &&
+                    (t.ExternalOrderId.StartsWith("Entry-", StringComparison.OrdinalIgnoreCase) ||
+                     t.ExternalOrderId.StartsWith("Fib-Entry-", StringComparison.OrdinalIgnoreCase)));
+
+            if (entryTrade == null)
+            {
+                return;
+            }
+
+            var (initialStopLoss, takeProfit) = ParseRiskLevels(entryTrade.ExternalOrderId);
+            if (initialStopLoss <= 0m || entryTrade.Price is not > 0m)
+            {
+                return;
+            }
+
+            var password = EncryptionHelper.Decrypt(strategy.Mt5Account.EncryptedPassword);
+            var brokerSymbol = await ResolveMt5BrokerSymbolAsync(context, strategy.UserId, strategy.Mt5Account.Id, strategy.Symbol, cancellationToken);
+            var position = await FindOpenMt5PositionAsync(mt5BridgeClient, strategy.Mt5Account, password, brokerSymbol, entryTrade, cancellationToken);
+            if (position == null)
+            {
+                return;
+            }
+
+            var entryPrice = entryTrade.Price.Value;
+            var isBuy = position.Type == 0;
+            var risk = Math.Abs(entryPrice - initialStopLoss);
+            if (risk <= 0m || position.Price_Current <= 0m)
+            {
+                return;
+            }
+
+            var profitR = isBuy
+                ? (position.Price_Current - entryPrice) / risk
+                : (entryPrice - position.Price_Current) / risk;
+            if (profitR <= 0m)
+            {
+                return;
+            }
+
+            var currentStopLoss = position.Sl > 0m ? position.Sl : initialStopLoss;
+            decimal? candidateStopLoss = null;
+            var reasons = new List<string>();
+
+            if (riskConfig.useBreakEven && profitR >= riskConfig.breakEvenTriggerR)
+            {
+                var breakEvenStop = isBuy
+                    ? entryPrice + riskConfig.breakEvenBufferPoints
+                    : entryPrice - riskConfig.breakEvenBufferPoints;
+                candidateStopLoss = breakEvenStop;
+                reasons.Add("BreakEven");
+            }
+
+            if (riskConfig.useTrailingStop && profitR >= riskConfig.trailStartR)
+            {
+                var trailingStop = isBuy
+                    ? position.Price_Current - risk * riskConfig.trailDistanceR
+                    : position.Price_Current + risk * riskConfig.trailDistanceR;
+
+                if (candidateStopLoss == null ||
+                    (isBuy && trailingStop > candidateStopLoss.Value) ||
+                    (!isBuy && trailingStop < candidateStopLoss.Value))
+                {
+                    candidateStopLoss = trailingStop;
+                }
+
+                reasons.Add("TrailingStop");
+            }
+
+            if (candidateStopLoss == null)
+            {
+                return;
+            }
+
+            var improvesProtection = isBuy
+                ? candidateStopLoss.Value > currentStopLoss
+                : candidateStopLoss.Value < currentStopLoss;
+            if (!improvesProtection)
+            {
+                return;
+            }
+
+            var minimumStep = risk * Math.Max(riskConfig.trailStepR, 0m);
+            var improvement = Math.Abs(candidateStopLoss.Value - currentStopLoss);
+            var isFirstBreakEvenMove = reasons.Contains("BreakEven") &&
+                (isBuy ? currentStopLoss < entryPrice : currentStopLoss > entryPrice);
+            if (!isFirstBreakEvenMove && minimumStep > 0m && improvement < minimumStep)
+            {
+                return;
+            }
+
+            var result = await mt5BridgeClient.ModifyPositionAsync(new Mt5BridgeModifyPositionRequestDto
+            {
+                Login = strategy.Mt5Account.Login,
+                Server = strategy.Mt5Account.Server,
+                Password = password,
+                Symbol = brokerSymbol,
+                PositionTicket = position.Ticket,
+                StopLoss = candidateStopLoss.Value,
+                TakeProfit = takeProfit > 0m ? takeProfit : position.Tp,
+                Comment = $"TradeSphere risk {string.Join("+", reasons.Distinct())}"
+            }, cancellationToken);
+
+            var trade = CreateTradeAttempt(strategy, entryTrade.Side, position.Price_Current, position.Volume, $"MT5-Risk|Reason:{string.Join("+", reasons.Distinct())}|SL:{candidateStopLoss.Value:F2}|MT5:{position.Ticket}");
+            trade.OrderType = "Modify SL";
+            trade.ExecutedAt = DateTime.UtcNow;
+            trade.BrokerResponse = result.RawResponse ?? result.Message;
+            trade.Status = result.Success ? "Modified" : "Failed";
+            trade.ErrorReason = result.Success
+                ? $"MT5 SL moved to {candidateStopLoss.Value:0.#####} ({string.Join("+", reasons.Distinct())})."
+                : NormalizeOrderError(result.Message);
+            trade.UpdatedAt = DateTime.UtcNow;
 
             context.Trades.Add(trade);
             await context.SaveChangesAsync(cancellationToken);
@@ -1553,6 +1716,71 @@ namespace TradeSphere.TradingEngine
             return string.IsNullOrWhiteSpace(parsedDetails)
                 ? errorMessage
                 : $"Order rejected by broker: {parsedDetails}";
+        }
+
+        private static Mt5RiskManagementConfig ParseMt5RiskManagementConfig(string? configJson)
+        {
+            var config = new Mt5RiskManagementConfig();
+            if (string.IsNullOrWhiteSpace(configJson))
+            {
+                return config;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(configJson);
+                var root = doc.RootElement;
+                config.useBreakEven = ReadBool(root, "useBreakEven", config.useBreakEven);
+                config.breakEvenTriggerR = ReadDecimal(root, "breakEvenTriggerR", config.breakEvenTriggerR);
+                config.breakEvenBufferPoints = ReadDecimal(root, "breakEvenBufferPoints", config.breakEvenBufferPoints);
+                config.useTrailingStop = ReadBool(root, "useTrailingStop", config.useTrailingStop);
+                config.trailStartR = ReadDecimal(root, "trailStartR", config.trailStartR);
+                config.trailStepR = ReadDecimal(root, "trailStepR", config.trailStepR);
+                config.trailDistanceR = ReadDecimal(root, "trailDistanceR", config.trailDistanceR);
+            }
+            catch
+            {
+                return config;
+            }
+
+            config.breakEvenTriggerR = Math.Max(config.breakEvenTriggerR, 0.1m);
+            config.trailStartR = Math.Max(config.trailStartR, 0.1m);
+            config.trailStepR = Math.Max(config.trailStepR, 0m);
+            config.trailDistanceR = Math.Max(config.trailDistanceR, 0.1m);
+            return config;
+        }
+
+        private static bool ReadBool(JsonElement root, string propertyName, bool defaultValue)
+        {
+            if (!root.TryGetProperty(propertyName, out var value))
+            {
+                return defaultValue;
+            }
+
+            return value.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.String when bool.TryParse(value.GetString(), out var parsed) => parsed,
+                _ => defaultValue
+            };
+        }
+
+        private static decimal ReadDecimal(JsonElement root, string propertyName, decimal defaultValue)
+        {
+            if (!root.TryGetProperty(propertyName, out var value))
+            {
+                return defaultValue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var parsedNumber))
+            {
+                return parsedNumber;
+            }
+
+            return value.ValueKind == JsonValueKind.String && decimal.TryParse(value.GetString(), out var parsedString)
+                ? parsedString
+                : defaultValue;
         }
 
         private static int FindLastCandleIndex(List<CandleDto> candles, long time)
@@ -1900,6 +2128,13 @@ namespace TradeSphere.TradingEngine
             public string tradeSizeType { get; set; } = "Contracts";
             public decimal tradeSizeValue { get; set; } = 1.0m;
             public decimal leverage { get; set; } = 10.0m;
+            public bool useBreakEven { get; set; } = false;
+            public decimal breakEvenTriggerR { get; set; } = 1.0m;
+            public decimal breakEvenBufferPoints { get; set; } = 0m;
+            public bool useTrailingStop { get; set; } = false;
+            public decimal trailStartR { get; set; } = 1.5m;
+            public decimal trailStepR { get; set; } = 0.25m;
+            public decimal trailDistanceR { get; set; } = 1.0m;
         }
 
         private class Fib55Signal
@@ -1936,6 +2171,24 @@ namespace TradeSphere.TradingEngine
             public string tradeSizeType { get; set; } = "Contracts"; // "Contracts", "USD", "INR", "Margin_USD", "Margin_INR"
             public decimal tradeSizeValue { get; set; } = 1.0m;
             public decimal leverage { get; set; } = 10.0m;
+            public bool useBreakEven { get; set; } = false;
+            public decimal breakEvenTriggerR { get; set; } = 1.0m;
+            public decimal breakEvenBufferPoints { get; set; } = 0m;
+            public bool useTrailingStop { get; set; } = false;
+            public decimal trailStartR { get; set; } = 1.5m;
+            public decimal trailStepR { get; set; } = 0.25m;
+            public decimal trailDistanceR { get; set; } = 1.0m;
+        }
+
+        private class Mt5RiskManagementConfig
+        {
+            public bool useBreakEven { get; set; } = false;
+            public decimal breakEvenTriggerR { get; set; } = 1.0m;
+            public decimal breakEvenBufferPoints { get; set; } = 0m;
+            public bool useTrailingStop { get; set; } = false;
+            public decimal trailStartR { get; set; } = 1.5m;
+            public decimal trailStepR { get; set; } = 0.25m;
+            public decimal trailDistanceR { get; set; } = 1.0m;
         }
 
         private static List<decimal> CalculateEMAList(List<decimal> prices, int length)

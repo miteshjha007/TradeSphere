@@ -99,6 +99,18 @@ namespace TradeSphere.Application.DTOs
         public string? Comment { get; set; }
     }
 
+    public class Mt5BridgeModifyPositionRequestDto
+    {
+        public long Login { get; set; }
+        public string Password { get; set; }
+        public string Server { get; set; }
+        public string Symbol { get; set; }
+        public long PositionTicket { get; set; }
+        public decimal? StopLoss { get; set; }
+        public decimal? TakeProfit { get; set; }
+        public string? Comment { get; set; }
+    }
+
     public class Mt5BridgeCandlesRequestDto
     {
         public long Login { get; set; }
@@ -180,6 +192,8 @@ namespace TradeSphere.Application.DTOs
         public decimal Price_Open { get; set; }
         [JsonPropertyName("price_current")]
         public decimal Price_Current { get; set; }
+        public decimal Sl { get; set; }
+        public decimal Tp { get; set; }
         public decimal Profit { get; set; }
         public decimal Swap { get; set; }
         public string Symbol { get; set; }

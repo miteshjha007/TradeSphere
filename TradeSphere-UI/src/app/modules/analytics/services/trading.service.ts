@@ -20,6 +20,8 @@ export interface TradeRecord {
   pnl: number;
   externalOrderId: string;
   errorReason?: string | null;
+  brokerTicket?: string | null;
+  activityType: string;
 }
 
 export interface PositionRecord {

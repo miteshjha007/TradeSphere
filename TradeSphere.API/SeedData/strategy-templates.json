@@ -18,7 +18,14 @@
       "squareOffMinute": 15,
       "tradeSizeType": "Contracts",
       "tradeSizeValue": 1.0,
-      "leverage": 10.0
+      "leverage": 10.0,
+      "useBreakEven": false,
+      "breakEvenTriggerR": 1.0,
+      "breakEvenBufferPoints": 0.0,
+      "useTrailingStop": false,
+      "trailStartR": 1.5,
+      "trailStepR": 0.25,
+      "trailDistanceR": 1.0
     }
   },
   {
@@ -44,7 +51,14 @@
       "stopLossPct": 0.004,
       "tradeSizeType": "Contracts",
       "tradeSizeValue": 1.0,
-      "leverage": 10.0
+      "leverage": 10.0,
+      "useBreakEven": true,
+      "breakEvenTriggerR": 1.0,
+      "breakEvenBufferPoints": 0.0,
+      "useTrailingStop": true,
+      "trailStartR": 1.5,
+      "trailStepR": 0.25,
+      "trailDistanceR": 1.0
     }
   },
   {
@@ -96,6 +110,46 @@
       "tradeSizeType": "RiskPercent",
       "tradeSizeValue": 1.0,
       "leverage": 10.0
+    }
+  },
+  {
+    "name": "ATR Fib Range Oscillator V2 - Refined BOS Strategy",
+    "description": "A refined BOS trend strategy using ATR Fibonacci trend envelopes, pullback validation, range oscillator confirmation, higher-timeframe trend alignment, slope filter, and strong BOS candle entries with RR-based exits.",
+    "logicType": "ATR-FIB-RANGE-BOS",
+    "isPublic": true,
+    "defaultConfig": {
+      "maType": "RMA",
+      "maLength": 45,
+      "atrLength": 45,
+      "atrMultiplier": 3.0,
+      "rangeOscillatorLength": 200,
+      "rangeOscillatorMultiplier": 2.0,
+      "useOscillatorConfirmation": true,
+      "oscillatorLevel": 100.0,
+      "useOscillatorSlope": true,
+      "swingLeft": 3,
+      "swingRight": 3,
+      "pullbackValidBars": 35,
+      "riskReward": 1.5,
+      "useHtfTrendFilter": true,
+      "htfTimeframe": "15",
+      "useTrendSlopeFilter": true,
+      "slopeLength": 10,
+      "minimumAtrSlope": 0.05,
+      "useStrongBosCandle": true,
+      "minimumBodyAtrMultiplier": 0.25,
+      "useSessionFilter": false,
+      "tradingSession": "0700-1700",
+      "tradeSizeType": "Contracts",
+      "tradeSizeValue": 1.0,
+      "leverage": 10.0,
+      "useBreakEven": false,
+      "breakEvenTriggerR": 1.0,
+      "breakEvenBufferPoints": 0.0,
+      "useTrailingStop": false,
+      "trailStartR": 1.5,
+      "trailStepR": 0.25,
+      "trailDistanceR": 1.0
     }
   }
 ]

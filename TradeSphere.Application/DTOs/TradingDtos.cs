@@ -21,6 +21,8 @@ namespace TradeSphere.Application.DTOs
         public decimal Pnl { get; set; }
         public string ExternalOrderId { get; set; }
         public string? ErrorReason { get; set; }
+        public string? BrokerTicket { get; set; }
+        public string ActivityType { get; set; }
     }
 
     public class PositionDto

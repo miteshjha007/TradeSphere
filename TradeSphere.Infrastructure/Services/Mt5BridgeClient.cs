@@ -124,6 +124,34 @@ namespace TradeSphere.Infrastructure.Services
             }
         }
 
+        public async Task<Mt5BridgeOrderResultDto> ModifyPositionAsync(Mt5BridgeModifyPositionRequestDto request, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var payload = new Dictionary<string, object?>
+                {
+                    ["login"] = request.Login,
+                    ["password"] = request.Password,
+                    ["server"] = request.Server,
+                    ["symbol"] = request.Symbol,
+                    ["positionTicket"] = request.PositionTicket,
+                    ["stopLoss"] = request.StopLoss,
+                    ["takeProfit"] = request.TakeProfit,
+                    ["comment"] = request.Comment
+                };
+                var response = await PostJsonAsync($"{_baseUrl}/position/modify", payload, cancellationToken);
+                return await ReadJsonAsync<Mt5BridgeOrderResultDto>(response, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                return new Mt5BridgeOrderResultDto
+                {
+                    Success = false,
+                    Message = $"MT5 bridge modify-position request failed: {ex.Message}"
+                };
+            }
+        }
+
         public async Task<Mt5BridgeCandlesResultDto> GetCandlesAsync(Mt5BridgeCandlesRequestDto request, CancellationToken cancellationToken = default)
         {
             try

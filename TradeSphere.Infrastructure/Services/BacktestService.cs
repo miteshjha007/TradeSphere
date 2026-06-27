@@ -156,6 +156,35 @@ namespace TradeSphere.Infrastructure.Services
             public decimal leverage { get; set; } = 10.0m;
         }
 
+        public class AtrFibRangeBosConfig
+        {
+            public string maType { get; set; } = "RMA";
+            public int maLength { get; set; } = 45;
+            public int atrLength { get; set; } = 45;
+            public decimal atrMultiplier { get; set; } = 3.0m;
+            public int rangeOscillatorLength { get; set; } = 200;
+            public decimal rangeOscillatorMultiplier { get; set; } = 2.0m;
+            public bool useOscillatorConfirmation { get; set; } = true;
+            public decimal oscillatorLevel { get; set; } = 100.0m;
+            public bool useOscillatorSlope { get; set; } = true;
+            public int swingLeft { get; set; } = 3;
+            public int swingRight { get; set; } = 3;
+            public int pullbackValidBars { get; set; } = 35;
+            public decimal riskReward { get; set; } = 1.5m;
+            public bool useHtfTrendFilter { get; set; } = true;
+            public string htfTimeframe { get; set; } = "15";
+            public bool useTrendSlopeFilter { get; set; } = true;
+            public int slopeLength { get; set; } = 10;
+            public decimal minimumAtrSlope { get; set; } = 0.05m;
+            public bool useStrongBosCandle { get; set; } = true;
+            public decimal minimumBodyAtrMultiplier { get; set; } = 0.25m;
+            public bool useSessionFilter { get; set; } = false;
+            public string tradingSession { get; set; } = "0700-1700";
+            public string tradeSizeType { get; set; } = "Contracts";
+            public decimal tradeSizeValue { get; set; } = 1.0m;
+            public decimal leverage { get; set; } = 10.0m;
+        }
+
         public class BacktestTradeLog
         {
             public string side { get; set; }
@@ -615,6 +644,11 @@ namespace TradeSphere.Infrastructure.Services
             {
                 var configJson = string.IsNullOrEmpty(dto.ConfigOverrides) ? strategy.DefaultConfig : dto.ConfigOverrides;
                 (totalReturn, maxDrawdown, tradeCount, resultJson) = await RunSmcDleBacktestAsync(userId, dto, configJson, startDateUtc, endDateUtc);
+            }
+            else if (strategy.LogicType == "ATR-FIB-RANGE-BOS")
+            {
+                var configJson = string.IsNullOrEmpty(dto.ConfigOverrides) ? strategy.DefaultConfig : dto.ConfigOverrides;
+                (totalReturn, maxDrawdown, tradeCount, resultJson) = await RunAtrFibRangeBosBacktestAsync(userId, dto, configJson, startDateUtc, endDateUtc);
             }
             else
             {
@@ -1167,6 +1201,218 @@ namespace TradeSphere.Infrastructure.Services
             return BuildBacktestResultJson(dto, interval, dto.InitialCapital, capital, ltf.Count, htf.Count + mtf.Count, diagnostics, trades, equity);
         }
 
+        private async Task<(decimal totalReturn, decimal maxDrawdown, int tradeCount, string resultJson)> RunAtrFibRangeBosBacktestAsync(
+            int userId,
+            RunBacktestDto dto,
+            string configJson,
+            DateTime startDateUtc,
+            DateTime endDateUtc)
+        {
+            var config = JsonSerializer.Deserialize<AtrFibRangeBosConfig>(configJson) ?? new AtrFibRangeBosConfig();
+            var interval = dto.Interval ?? "3m";
+            var htfResolution = NormalizeResolution(config.htfTimeframe);
+            var diagnostics = new List<string>
+            {
+                "ATR Fib Range BOS backtest uses completed candles and evaluates SL/TP intrabar after entry, so small differences from TradingView can occur on same-bar execution."
+            };
+
+            if (dto.InitialCapital <= 0m)
+            {
+                throw new Exception("Initial capital must be greater than zero.");
+            }
+
+            var startSec = new DateTimeOffset(startDateUtc).ToUnixTimeSeconds();
+            var endSec = new DateTimeOffset(endDateUtc).ToUnixTimeSeconds();
+            var historyStart = new DateTimeOffset(startDateUtc.AddDays(-30)).ToUnixTimeSeconds();
+
+            var candles = (await GetBacktestCandlesAsync(userId, dto, dto.Symbol, interval, historyStart, endSec)).OrderBy(c => c.Time).ToList();
+            var htfCandles = (await GetBacktestCandlesAsync(userId, dto, dto.Symbol, htfResolution, historyStart, endSec)).OrderBy(c => c.Time).ToList();
+
+            if (candles.Count == 0) diagnostics.Add($"No intraday candles returned for {dto.Symbol} at {interval}.");
+            if (htfCandles.Count == 0) diagnostics.Add($"No HTF candles returned for {dto.Symbol} at {htfResolution}.");
+
+            var ltfState = CalculateAtrFibTrendState(candles, config.maLength, config.maType, config.atrLength, config.atrMultiplier);
+            var htfState = CalculateAtrFibTrendState(htfCandles, config.maLength, config.maType, config.atrLength, config.atrMultiplier);
+            var oscillator = CalculateRangeOscillator(candles, config.rangeOscillatorLength, config.rangeOscillatorMultiplier);
+            var tz = GetIstTimezone();
+
+            decimal capital = dto.InitialCapital;
+            var trades = new List<BacktestTradeLog>();
+            var equity = new List<EquityPoint>();
+            int position = 0;
+            decimal entry = 0m, sl = 0m, tp = 0m;
+            long entryTime = 0;
+            decimal? lastSwingHigh = null, lastSwingLow = null;
+            int? longPullbackBar = null, shortPullbackBar = null;
+            var warmup = Math.Max(
+                Math.Max(config.maLength + config.atrLength + config.swingLeft + config.swingRight + 5, config.rangeOscillatorLength + 2),
+                config.slopeLength + 5);
+
+            for (int i = warmup; i < candles.Count; i++)
+            {
+                var c = candles[i];
+                if (c.Time < startSec) continue;
+
+                if (position != 0)
+                {
+                    bool exit = false;
+                    decimal exitPrice = c.Close;
+                    string reason = "";
+
+                    if (position == 1)
+                    {
+                        if (c.Low <= sl)
+                        {
+                            exit = true;
+                            exitPrice = sl;
+                            reason = "Stop Loss";
+                        }
+                        else if (c.High >= tp)
+                        {
+                            exit = true;
+                            exitPrice = tp;
+                            reason = "Take Profit";
+                        }
+                    }
+                    else
+                    {
+                        if (c.High >= sl)
+                        {
+                            exit = true;
+                            exitPrice = sl;
+                            reason = "Stop Loss";
+                        }
+                        else if (c.Low <= tp)
+                        {
+                            exit = true;
+                            exitPrice = tp;
+                            reason = "Take Profit";
+                        }
+                    }
+
+                    if (exit)
+                    {
+                        var pnlPct = position == 1 ? (exitPrice - entry) / entry : (entry - exitPrice) / entry;
+                        var pnl = capital * pnlPct;
+                        capital += pnl;
+                        trades.Add(new BacktestTradeLog
+                        {
+                            side = position == 1 ? "Long" : "Short",
+                            entryPrice = entry,
+                            exitPrice = exitPrice,
+                            entryTime = entryTime,
+                            exitTime = c.Time,
+                            pnl = pnl,
+                            pnlPercent = pnlPct * 100m,
+                            reason = reason
+                        });
+                        position = 0;
+                    }
+                }
+
+                var pivotIndex = i - config.swingRight;
+                if (IsPivotHigh(candles, pivotIndex, config.swingLeft, config.swingRight))
+                {
+                    lastSwingHigh = candles[pivotIndex].High;
+                }
+
+                if (IsPivotLow(candles, pivotIndex, config.swingLeft, config.swingRight))
+                {
+                    lastSwingLow = candles[pivotIndex].Low;
+                }
+
+                var trend = ltfState.Trend[i];
+                var atr = ltfState.Atr[i];
+                var trendLine = ltfState.TrendLine[i];
+                if (trend == 0 || atr <= 0m || trendLine <= 0m)
+                {
+                    equity.Add(new EquityPoint { time = c.Time, equity = capital });
+                    continue;
+                }
+
+                var (fib618, fib786) = CalculateAtrFibPocket(c, ltfState.Basis[i], atr, config.atrMultiplier, trend);
+                var pocketTop = Math.Max(fib618, fib786);
+                var pocketBot = Math.Min(fib618, fib786);
+                var pullbackTouch = (c.High >= pocketBot && c.Low <= pocketTop) || (c.High >= trendLine && c.Low <= trendLine);
+
+                if (trend == 1 && pullbackTouch) longPullbackBar = i;
+                if (trend == -1 && pullbackTouch) shortPullbackBar = i;
+                if (trend != 1) longPullbackBar = null;
+                if (trend != -1) shortPullbackBar = null;
+
+                var longValid = longPullbackBar.HasValue && i - longPullbackBar.Value <= config.pullbackValidBars;
+                var shortValid = shortPullbackBar.HasValue && i - shortPullbackBar.Value <= config.pullbackValidBars;
+
+                var osc = oscillator[i];
+                var prevOsc = oscillator[i - 1];
+                var bullOsc = !config.useOscillatorConfirmation || (osc.HasValue && osc.Value > config.oscillatorLevel);
+                var bearOsc = !config.useOscillatorConfirmation || (osc.HasValue && osc.Value < -config.oscillatorLevel);
+                var bullOscSlope = !config.useOscillatorSlope || (osc.HasValue && prevOsc.HasValue && osc.Value > prevOsc.Value);
+                var bearOscSlope = !config.useOscillatorSlope || (osc.HasValue && prevOsc.HasValue && osc.Value < prevOsc.Value);
+
+                var slope = atr != 0m && i - config.slopeLength >= 0
+                    ? (trendLine - ltfState.TrendLine[i - config.slopeLength]) / atr
+                    : 0m;
+                var slopeLongOk = !config.useTrendSlopeFilter || slope > config.minimumAtrSlope;
+                var slopeShortOk = !config.useTrendSlopeFilter || slope < -config.minimumAtrSlope;
+
+                var body = Math.Abs(c.Close - c.Open);
+                var strongBody = body >= atr * config.minimumBodyAtrMultiplier;
+                var bullBosCandle = c.Close > c.Open && c.Close > candles[i - 1].High;
+                var bearBosCandle = c.Close < c.Open && c.Close < candles[i - 1].Low;
+                var strongLongOk = !config.useStrongBosCandle || (strongBody && bullBosCandle);
+                var strongShortOk = !config.useStrongBosCandle || (strongBody && bearBosCandle);
+                var longBos = lastSwingHigh.HasValue && c.Close > lastSwingHigh.Value;
+                var shortBos = lastSwingLow.HasValue && c.Close < lastSwingLow.Value;
+
+                var htfIndex = FindLastCandleIndex(htfCandles, c.Time);
+                var htfTrend = htfIndex >= 0 && htfIndex < htfState.Trend.Count ? htfState.Trend[htfIndex] : 0;
+                var htfOkLong = !config.useHtfTrendFilter || htfTrend == 1;
+                var htfOkShort = !config.useHtfTrendFilter || htfTrend == -1;
+                var ist = TimeZoneInfo.ConvertTimeFromUtc(DateTimeOffset.FromUnixTimeSeconds(c.Time).UtcDateTime, tz);
+                var sessionOk = !config.useSessionFilter || IsInSession(ist, config.tradingSession);
+
+                var longCondition = trend == 1 && longValid && longBos && bullOsc && bullOscSlope && htfOkLong && slopeLongOk && strongLongOk && sessionOk;
+                var shortCondition = trend == -1 && shortValid && shortBos && bearOsc && bearOscSlope && htfOkShort && slopeShortOk && strongShortOk && sessionOk;
+
+                if (position == 0 && (longCondition || shortCondition))
+                {
+                    if (longCondition)
+                    {
+                        var longSl = Math.Min(trendLine, lastSwingLow ?? trendLine);
+                        var risk = c.Close - longSl;
+                        if (risk > 0m)
+                        {
+                            position = 1;
+                            entry = c.Close;
+                            sl = longSl;
+                            tp = entry + risk * config.riskReward;
+                            entryTime = c.Time;
+                            longPullbackBar = null;
+                        }
+                    }
+                    else
+                    {
+                        var shortSl = Math.Max(trendLine, lastSwingHigh ?? trendLine);
+                        var risk = shortSl - c.Close;
+                        if (risk > 0m)
+                        {
+                            position = -1;
+                            entry = c.Close;
+                            sl = shortSl;
+                            tp = entry - risk * config.riskReward;
+                            entryTime = c.Time;
+                            shortPullbackBar = null;
+                        }
+                    }
+                }
+
+                equity.Add(new EquityPoint { time = c.Time, equity = capital });
+            }
+
+            return BuildBacktestResultJson(dto, interval, dto.InitialCapital, capital, candles.Count, htfCandles.Count, diagnostics, trades, equity);
+        }
+
         private (decimal totalReturn, decimal maxDrawdown, int tradeCount, string resultJson) BuildBacktestResultJson(
             RunBacktestDto dto,
             string interval,
@@ -1370,6 +1616,196 @@ namespace TradeSphere.Infrastructure.Services
                 if (i != index && candles[i].Low <= value) return false;
             }
             return true;
+        }
+
+        private static bool IsPivotHigh(List<CandleDto> candles, int index, int left, int right)
+        {
+            if (index < left || index + right >= candles.Count) return false;
+            var value = candles[index].High;
+            for (int i = index - left; i <= index + right; i++)
+            {
+                if (i != index && candles[i].High >= value) return false;
+            }
+            return true;
+        }
+
+        private static bool IsPivotLow(List<CandleDto> candles, int index, int left, int right)
+        {
+            if (index < left || index + right >= candles.Count) return false;
+            var value = candles[index].Low;
+            for (int i = index - left; i <= index + right; i++)
+            {
+                if (i != index && candles[i].Low <= value) return false;
+            }
+            return true;
+        }
+
+        private static (List<int> Trend, List<decimal> Basis, List<decimal> Atr, List<decimal> TrendLine) CalculateAtrFibTrendState(
+            List<CandleDto> candles,
+            int maLength,
+            string maType,
+            int atrLength,
+            decimal atrMultiplier)
+        {
+            var closes = candles.Select(c => c.Close).ToList();
+            var basis = CalculateMAList(closes, maLength, maType);
+            var atr = CalculateATRList(candles, atrLength);
+            var trend = Enumerable.Repeat(0, candles.Count).ToList();
+            var trendLine = Enumerable.Repeat(0m, candles.Count).ToList();
+            var currentTrend = 0;
+
+            for (int i = 1; i < candles.Count; i++)
+            {
+                var upper = basis[i] + atr[i] * atrMultiplier;
+                var lower = basis[i] - atr[i] * atrMultiplier;
+                var prevUpper = basis[i - 1] + atr[i - 1] * atrMultiplier;
+                var prevLower = basis[i - 1] - atr[i - 1] * atrMultiplier;
+
+                if (basis[i] > 0m && atr[i] > 0m && candles[i - 1].Close <= prevUpper && candles[i].Close > upper)
+                {
+                    currentTrend = 1;
+                }
+                else if (basis[i] > 0m && atr[i] > 0m && candles[i - 1].Close >= prevLower && candles[i].Close < lower)
+                {
+                    currentTrend = -1;
+                }
+
+                trend[i] = currentTrend;
+                trendLine[i] = currentTrend == 1 ? lower : currentTrend == -1 ? upper : 0m;
+            }
+
+            return (trend, basis, atr, trendLine);
+        }
+
+        private static (decimal fib618, decimal fib786) CalculateAtrFibPocket(CandleDto candle, decimal basis, decimal atr, decimal atrMultiplier, int trend)
+        {
+            var upper = basis + atr * atrMultiplier;
+            var lower = basis - atr * atrMultiplier;
+            var width = upper - lower;
+            if (width <= 0m)
+            {
+                return (0m, 0m);
+            }
+
+            if (trend == 1)
+            {
+                return (lower + width * (1m - 0.618m), lower + width * (1m - 0.786m));
+            }
+
+            return (upper - width * (1m - 0.618m), upper - width * (1m - 0.786m));
+        }
+
+        private static List<decimal?> CalculateRangeOscillator(List<CandleDto> candles, int length, decimal multiplier)
+        {
+            var result = Enumerable.Repeat<decimal?>(null, candles.Count).ToList();
+            var atr200 = CalculateATRList(candles, 200);
+            var atr2000 = CalculateATRList(candles, 2000);
+
+            for (int i = length; i < candles.Count; i++)
+            {
+                var atrRaw = atr2000[i] > 0m ? atr2000[i] : atr200[i];
+                var rangeAtr = atrRaw * multiplier;
+                if (rangeAtr == 0m)
+                {
+                    continue;
+                }
+
+                decimal sumWeightedClose = 0m;
+                decimal sumWeights = 0m;
+                for (int j = 0; j < length; j++)
+                {
+                    var current = candles[i - j];
+                    var previous = candles[i - j - 1];
+                    if (previous.Close == 0m)
+                    {
+                        continue;
+                    }
+
+                    var weight = Math.Abs(current.Close - previous.Close) / previous.Close;
+                    sumWeightedClose += current.Close * weight;
+                    sumWeights += weight;
+                }
+
+                if (sumWeights == 0m)
+                {
+                    continue;
+                }
+
+                var rangeMa = sumWeightedClose / sumWeights;
+                result[i] = 100m * (candles[i].Close - rangeMa) / rangeAtr;
+            }
+
+            return result;
+        }
+
+        private static List<decimal> CalculateMAList(List<decimal> values, int length, string maType)
+        {
+            return (maType ?? "RMA").ToUpperInvariant() switch
+            {
+                "SMA" => CalculateSMAList(values, length),
+                "EMA" => CalculateEMAList(values, length),
+                "WMA" => CalculateWMAList(values, length),
+                "HMA" => CalculateHMAList(values, length),
+                _ => CalculateRMAList(values, length)
+            };
+        }
+
+        private static List<decimal> CalculateSMAList(List<decimal> values, int length)
+        {
+            var result = Enumerable.Repeat(0m, values.Count).ToList();
+            if (length <= 0) return result;
+            decimal sum = 0m;
+            for (int i = 0; i < values.Count; i++)
+            {
+                sum += values[i];
+                if (i >= length) sum -= values[i - length];
+                if (i >= length - 1) result[i] = sum / length;
+            }
+            return result;
+        }
+
+        private static List<decimal> CalculateRMAList(List<decimal> values, int length)
+        {
+            var result = Enumerable.Repeat(0m, values.Count).ToList();
+            if (values.Count < length || length <= 0) return result;
+
+            var first = values.Take(length).Average();
+            result[length - 1] = first;
+            var current = first;
+            for (int i = length; i < values.Count; i++)
+            {
+                current = (current * (length - 1) + values[i]) / length;
+                result[i] = current;
+            }
+            return result;
+        }
+
+        private static List<decimal> CalculateWMAList(List<decimal> values, int length)
+        {
+            var result = Enumerable.Repeat(0m, values.Count).ToList();
+            if (length <= 0) return result;
+            var denominator = length * (length + 1) / 2m;
+            for (int i = length - 1; i < values.Count; i++)
+            {
+                decimal weighted = 0m;
+                for (int j = 0; j < length; j++)
+                {
+                    weighted += values[i - j] * (length - j);
+                }
+                result[i] = weighted / denominator;
+            }
+            return result;
+        }
+
+        private static List<decimal> CalculateHMAList(List<decimal> values, int length)
+        {
+            if (length <= 1) return values.ToList();
+            var half = Math.Max(1, length / 2);
+            var sqrt = Math.Max(1, (int)Math.Round(Math.Sqrt(length)));
+            var wmaHalf = CalculateWMAList(values, half);
+            var wmaFull = CalculateWMAList(values, length);
+            var diff = values.Select((_, i) => 2m * wmaHalf[i] - wmaFull[i]).ToList();
+            return CalculateWMAList(diff, sqrt);
         }
 
         private static bool IsBullishEngulf(List<CandleDto> candles, int index)
