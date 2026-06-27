@@ -79,6 +79,10 @@ class Mt5BridgeHandler(BaseHTTPRequestHandler):
             self.handle_close_position(payload)
             return
 
+        if self.path == "/position/modify":
+            self.handle_modify_position(payload)
+            return
+
         if self.path == "/positions":
             self.handle_positions(payload)
             return
@@ -363,6 +367,63 @@ class Mt5BridgeHandler(BaseHTTPRequestHandler):
                     success,
                     raw.get("comment") or ("Position closed." if success else "Position close rejected by MT5."),
                     orderId=str(raw.get("order") or ""),
+                    dealId=str(raw.get("deal") or ""),
+                    price=raw.get("price"),
+                    rawResponse=json.dumps(raw, default=str),
+                ),
+            )
+        finally:
+            mt5.shutdown()
+
+    def handle_modify_position(self, payload: Dict[str, Any]) -> None:
+        mt5, error_response = connect_mt5(payload)
+        if error_response:
+            self.write_json(400, error_response)
+            return
+
+        try:
+            symbol = str(read_value(payload, "symbol") or "").strip()
+            position_ticket = int(read_value(payload, "positionTicket") or read_value(payload, "position") or 0)
+            stop_loss = read_value(payload, "stopLoss")
+            take_profit = read_value(payload, "takeProfit")
+
+            if not symbol or position_ticket <= 0:
+                self.write_json(400, response(False, "symbol and positionTicket are required."))
+                return
+
+            positions = mt5.positions_get(ticket=position_ticket)
+            if positions is None or len(positions) == 0:
+                self.write_json(400, response(False, f"Open MT5 position {position_ticket} was not found."))
+                return
+
+            position_data = positions[0]._asdict()
+            if str(position_data.get("symbol") or "").upper() != symbol.upper():
+                self.write_json(400, response(False, f"Position {position_ticket} does not belong to symbol {symbol}."))
+                return
+
+            request = {
+                "action": mt5.TRADE_ACTION_SLTP,
+                "symbol": symbol,
+                "position": position_ticket,
+                "sl": float(stop_loss if stop_loss is not None else position_data.get("sl") or 0),
+                "tp": float(take_profit if take_profit is not None else position_data.get("tp") or 0),
+                "magic": int(read_value(payload, "magic") or 20260616),
+            }
+
+            result = mt5.order_send(request)
+            if result is None:
+                code, description = mt5.last_error()
+                self.write_json(400, response(False, f"position modify failed: {code} {description}"))
+                return
+
+            raw = result._asdict()
+            success = raw.get("retcode") in (mt5.TRADE_RETCODE_DONE, mt5.TRADE_RETCODE_PLACED)
+            self.write_json(
+                200 if success else 400,
+                response(
+                    success,
+                    raw.get("comment") or ("Position SL/TP modified." if success else "Position modify rejected by MT5."),
+                    orderId=str(raw.get("order") or position_ticket),
                     dealId=str(raw.get("deal") or ""),
                     price=raw.get("price"),
                     rawResponse=json.dumps(raw, default=str),

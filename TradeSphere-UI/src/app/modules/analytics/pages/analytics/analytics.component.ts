@@ -7,6 +7,8 @@ import { TradingOverview, TradingService } from '../../services/trading.service'
   styleUrls: []
 })
 export class AnalyticsComponent implements OnInit {
+  private readonly reportColumnStorageKey = 'tradesphere.report.visibleColumns';
+
   data: TradingOverview = { trades: [], positions: [] };
   isLoading = true;
   errorMessage = '';
@@ -18,10 +20,33 @@ export class AnalyticsComponent implements OnInit {
     startDate: '',
     endDate: ''
   };
+  tradePage = 1;
+  tradePageSize = 10;
+  readonly tradePageSizeOptions = [10, 25, 50, 100];
+  readonly tradeColumns = [
+    { key: 'time', label: 'Time' },
+    { key: 'strategy', label: 'Strategy' },
+    { key: 'activity', label: 'Activity' },
+    { key: 'ticket', label: 'Ticket' },
+    { key: 'source', label: 'Source' },
+    { key: 'account', label: 'Account' },
+    { key: 'symbol', label: 'Symbol' },
+    { key: 'side', label: 'Side' },
+    { key: 'qty', label: 'Qty' },
+    { key: 'price', label: 'Price' },
+    { key: 'pnl', label: 'P/L' },
+    { key: 'status', label: 'Status' },
+    { key: 'reason', label: 'Reason' }
+  ];
+  visibleTradeColumns: Record<string, boolean> = this.tradeColumns.reduce((columns, column) => {
+    columns[column.key] = true;
+    return columns;
+  }, {} as Record<string, boolean>);
 
   constructor(private tradingService: TradingService) { }
 
   ngOnInit(): void {
+    this.loadVisibleColumns();
     this.loadTradingOverview();
   }
 
@@ -55,8 +80,17 @@ export class AnalyticsComponent implements OnInit {
 
   statusClass(status: string): string {
     if (status === 'Filled' || status === 'Open' || status === 'Closed') return 'bg-green-50 text-green-700 border-green-200';
+    if (status === 'Modified') return 'bg-blue-50 text-blue-700 border-blue-200';
     if (status === 'Pending' || status === 'Reconciled') return 'bg-amber-50 text-amber-700 border-amber-200';
     if (status === 'Failed') return 'bg-red-50 text-red-700 border-red-200';
+    return 'bg-gray-50 text-gray-700 border-gray-200';
+  }
+
+  activityClass(activity: string): string {
+    if (activity === 'Entry') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    if (activity === 'Risk Update') return 'bg-blue-50 text-blue-700 border-blue-200';
+    if (activity === 'Exit Signal' || activity === 'Closed') return 'bg-purple-50 text-purple-700 border-purple-200';
+    if (activity === 'Failed') return 'bg-red-50 text-red-700 border-red-200';
     return 'bg-gray-50 text-gray-700 border-gray-200';
   }
 
@@ -77,6 +111,27 @@ export class AnalyticsComponent implements OnInit {
         (!startDate || createdAt >= startDate) &&
         (!endDate || createdAt <= endDate);
     });
+  }
+
+  get totalTradePages(): number {
+    return Math.max(1, Math.ceil(this.filteredTrades.length / this.tradePageSize));
+  }
+
+  get currentTradePage(): number {
+    return Math.min(this.tradePage, this.totalTradePages);
+  }
+
+  get pagedTrades() {
+    const start = (this.currentTradePage - 1) * this.tradePageSize;
+    return this.filteredTrades.slice(start, start + this.tradePageSize);
+  }
+
+  get tradePageStart(): number {
+    return this.filteredTrades.length === 0 ? 0 : ((this.currentTradePage - 1) * this.tradePageSize) + 1;
+  }
+
+  get tradePageEnd(): number {
+    return Math.min(this.currentTradePage * this.tradePageSize, this.filteredTrades.length);
   }
 
   get strategyOptions(): string[] {
@@ -104,6 +159,44 @@ export class AnalyticsComponent implements OnInit {
       startDate: '',
       endDate: ''
     };
+    this.resetTradePage();
+  }
+
+  resetTradePage(): void {
+    this.tradePage = 1;
+  }
+
+  setTradePage(page: number): void {
+    this.tradePage = Math.min(Math.max(page, 1), this.totalTradePages);
+  }
+
+  get visibleTradeColumnCount(): number {
+    return this.tradeColumns.filter(column => this.isTradeColumnVisible(column.key)).length;
+  }
+
+  isTradeColumnVisible(key: string): boolean {
+    return this.visibleTradeColumns[key] !== false;
+  }
+
+  toggleTradeColumn(key: string): void {
+    const visibleCount = this.visibleTradeColumnCount;
+    if (this.visibleTradeColumns[key] !== false && visibleCount <= 1) {
+      return;
+    }
+
+    this.visibleTradeColumns = {
+      ...this.visibleTradeColumns,
+      [key]: this.visibleTradeColumns[key] === false
+    };
+    this.saveVisibleColumns();
+  }
+
+  showAllTradeColumns(): void {
+    this.visibleTradeColumns = this.tradeColumns.reduce((columns, column) => {
+      columns[column.key] = true;
+      return columns;
+    }, {} as Record<string, boolean>);
+    this.saveVisibleColumns();
   }
 
   deleteAllTrades(): void {
@@ -125,5 +218,26 @@ export class AnalyticsComponent implements OnInit {
 
   private uniqueOptions(values: Array<string | null | undefined>): string[] {
     return Array.from(new Set(values.filter((value): value is string => !!value))).sort();
+  }
+
+  private loadVisibleColumns(): void {
+    const saved = localStorage.getItem(this.reportColumnStorageKey);
+    if (!saved) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(saved) as Record<string, boolean>;
+      this.visibleTradeColumns = this.tradeColumns.reduce((columns, column) => {
+        columns[column.key] = parsed[column.key] !== false;
+        return columns;
+      }, {} as Record<string, boolean>);
+    } catch {
+      localStorage.removeItem(this.reportColumnStorageKey);
+    }
+  }
+
+  private saveVisibleColumns(): void {
+    localStorage.setItem(this.reportColumnStorageKey, JSON.stringify(this.visibleTradeColumns));
   }
 }
