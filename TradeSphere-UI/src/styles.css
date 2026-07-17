@@ -54,3 +54,268 @@ body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; background-
   margin: 0 !important;
   min-height: auto !important;
 }
+
+
+/* Crypto Options Desk polish */
+.crypto-options-page .mat-mdc-tab-body-content {
+  overflow: hidden;
+}
+
+.crypto-options-page .crypto-tab-panel {
+  max-height: calc(100vh - 360px);
+  min-height: 420px;
+  overflow-y: auto;
+}
+
+.crypto-options-page .mat-mdc-tab-header {
+  padding: 0 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.crypto-options-page .mat-mdc-tab-label-container {
+  overflow-x: auto;
+}
+
+.crypto-options-page .crypto-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  background: #f8fafc;
+  padding: 20px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+}
+
+.crypto-options-page .crypto-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.crypto-options-page .crypto-field span {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.crypto-options-page .crypto-field input,
+.crypto-options-page .crypto-field select {
+  min-height: 46px;
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  padding: 0 14px;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.crypto-options-page .crypto-field input:focus,
+.crypto-options-page .crypto-field select:focus {
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgb(79 70 229 / 0.14);
+}
+
+.crypto-options-page .crypto-table-wrap {
+  max-height: 560px;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 22px;
+  background: #fff;
+}
+
+.crypto-options-page .crypto-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: left;
+  font-size: 13px;
+}
+
+.crypto-options-page .crypto-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.crypto-options-page .crypto-table th,
+.crypto-options-page .crypto-table td {
+  white-space: nowrap;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 12px 14px;
+}
+
+.crypto-options-page .crypto-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.crypto-options-page .crypto-mini-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  background: #fff;
+  padding: 16px;
+}
+
+.crypto-options-page .crypto-mini-card p {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.crypto-options-page .crypto-mini-card strong {
+  margin-top: 6px;
+  display: block;
+  font-size: 24px;
+  line-height: 1;
+  color: #0f172a;
+}
+
+/* App theme toggle */
+.theme-toggle {
+  border-radius: 999px !important;
+  height: 36px !important;
+  padding: 0 14px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+}
+
+.theme-toggle .mat-icon {
+  font-size: 18px;
+  height: 18px;
+  width: 18px;
+}
+
+body.dark-theme {
+  background: #0b1120;
+  color: #dbeafe;
+  color-scheme: dark;
+}
+
+body.dark-theme .app-shell,
+body.dark-theme .app-main,
+body.dark-theme .bg-gray-50,
+body.dark-theme .bg-gray-100 {
+  background: #0b1120 !important;
+}
+
+body.dark-theme .app-header,
+body.dark-theme app-sidebar,
+body.dark-theme .bg-white {
+  background: #111827 !important;
+  color: #e5e7eb !important;
+}
+
+body.dark-theme .shadow,
+body.dark-theme .shadow-md,
+body.dark-theme .shadow-sm {
+  box-shadow: 0 18px 45px rgb(0 0 0 / 0.28) !important;
+}
+
+body.dark-theme .text-gray-900,
+body.dark-theme .text-gray-800,
+body.dark-theme .text-gray-700,
+body.dark-theme .text-gray-600 {
+  color: #e5e7eb !important;
+}
+
+body.dark-theme .text-gray-500,
+body.dark-theme .text-gray-400 {
+  color: #94a3b8 !important;
+}
+
+body.dark-theme .border,
+body.dark-theme .border-gray-50,
+body.dark-theme .border-gray-100,
+body.dark-theme .border-gray-200,
+body.dark-theme .border-slate-200,
+body.dark-theme .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #263244 !important;
+}
+
+body.dark-theme .bg-gray-50\/60,
+body.dark-theme .bg-gray-50,
+body.dark-theme .bg-slate-50,
+body.dark-theme .bg-blue-50,
+body.dark-theme .bg-green-50,
+body.dark-theme .bg-red-50,
+body.dark-theme .bg-yellow-50 {
+  background: #172033 !important;
+}
+
+body.dark-theme table,
+body.dark-theme thead,
+body.dark-theme tbody,
+body.dark-theme tr,
+body.dark-theme td,
+body.dark-theme th {
+  color: #e5e7eb;
+  border-color: #263244 !important;
+}
+
+body.dark-theme thead,
+body.dark-theme .crypto-options-page .crypto-table thead {
+  background: #1f2937 !important;
+}
+
+body.dark-theme input,
+body.dark-theme select,
+body.dark-theme textarea,
+body.dark-theme .mat-mdc-select-trigger,
+body.dark-theme .mat-mdc-text-field-wrapper {
+  background-color: #111827 !important;
+  color: #e5e7eb !important;
+  border-color: #374151 !important;
+}
+
+body.dark-theme input::placeholder,
+body.dark-theme textarea::placeholder {
+  color: #64748b !important;
+}
+
+body.dark-theme .mat-mdc-dialog-surface,
+body.dark-theme .mat-mdc-menu-panel,
+body.dark-theme .mat-mdc-card {
+  background: #111827 !important;
+  color: #e5e7eb !important;
+}
+
+body.dark-theme .mat-mdc-button,
+body.dark-theme .mat-mdc-icon-button,
+body.dark-theme .mat-mdc-outlined-button,
+body.dark-theme .mat-mdc-stroked-button {
+  color: #e5e7eb;
+}
+
+body.dark-theme .crypto-options-page .crypto-card,
+body.dark-theme .crypto-options-page .crypto-mini-card,
+body.dark-theme .crypto-options-page .crypto-table-wrap {
+  background: #111827 !important;
+  border-color: #263244 !important;
+}
+
+body.dark-theme .crypto-options-page .crypto-field input,
+body.dark-theme .crypto-options-page .crypto-field select {
+  background: #0f172a !important;
+  border-color: #334155 !important;
+  color: #e5e7eb !important;
+}
+
+body.dark-theme ::-webkit-scrollbar-track {
+  background: #111827;
+}
+
+body.dark-theme ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+body.dark-theme ::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}

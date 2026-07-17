@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TradeSphere.Application.Common.Interfaces;
@@ -28,6 +28,12 @@ namespace TradeSphere.Infrastructure
             services.AddScoped<IMt5Service, Services.Mt5Service>();
             services.AddScoped<IPropFirmService, Services.PropFirmService>();
             services.AddScoped<IIndianMarketService, Services.IndianMarketService>();
+            services.AddScoped<ICryptoOptionsService, Services.CryptoOptionsService>();
+            services.AddScoped<ICryptoOptionsBacktestService, Services.CryptoOptionsService>();
+            services.AddScoped<IOptionScanner, Services.CryptoOptionsService>();
+            services.AddScoped<IOptionChainProvider, Services.CryptoOptionsService>();
+            services.AddScoped<IOptionRiskManager, Services.OptionRiskManager>();
+            services.AddScoped<IOptionAnalyticsService, Services.OptionAnalyticsService>();
             services.AddHttpClient<IStockPickService, Services.StockPickService>();
             services.AddHttpClient<IMt5BridgeClient, Services.Mt5BridgeClient>();
             
@@ -41,3 +47,5 @@ namespace TradeSphere.Infrastructure
         }
     }
 }
+
+

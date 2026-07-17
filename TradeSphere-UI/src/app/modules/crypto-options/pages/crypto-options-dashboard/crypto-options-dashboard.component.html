@@ -1,0 +1,219 @@
+<div class="crypto-options-page min-h-screen bg-slate-50 px-4 py-6 lg:px-8">
+  <div class="mx-auto max-w-[1440px] space-y-6">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div>
+        <p class="text-xs font-black uppercase tracking-[0.35em] text-orange-600">Crypto Options Desk</p>
+        <h1 class="mt-1 text-3xl font-black tracking-tight text-slate-950">Options Research Platform</h1>
+        <p class="mt-1 max-w-3xl text-sm text-slate-600 lg:text-base">Independent option-chain research, scanner, strategy configs, chain snapshots, and options backtesting.</p>
+      </div>
+      <button mat-raised-button color="primary" (click)="refresh()" class="self-start lg:self-auto">
+        <mat-icon>refresh</mat-icon>
+        Refresh
+      </button>
+    </div>
+
+    <div *ngIf="error" class="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{{ error }}</div>
+
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p class="text-xs font-black uppercase text-slate-400">Strategy Configs</p>
+        <p class="mt-2 text-3xl font-black text-slate-900">{{ configs.length }}</p>
+      </div>
+      <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p class="text-xs font-black uppercase text-slate-400">Backtest Runs</p>
+        <p class="mt-2 text-3xl font-black text-blue-700">{{ runs.length }}</p>
+      </div>
+      <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p class="text-xs font-black uppercase text-slate-400">Chain Snapshots</p>
+        <p class="mt-2 text-3xl font-black text-emerald-700">{{ snapshots.length }}</p>
+      </div>
+      <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p class="text-xs font-black uppercase text-slate-400">Risk Flags</p>
+        <p class="mt-2 text-3xl font-black text-red-600">{{ risk?.stopLossHits || 0 }}</p>
+      </div>
+    </div>
+
+    <mat-tab-group class="crypto-tabs overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm" [selectedIndex]="selectedTabIndex" (selectedIndexChange)="onTabChange($event)">
+      <mat-tab label="Dashboard">
+        <section class="crypto-tab-panel grid gap-5 p-4 lg:grid-cols-3 lg:p-6">
+          <div class="rounded-3xl bg-slate-950 p-6 text-white lg:col-span-2">
+            <p class="text-xs font-black uppercase tracking-[0.25em] text-slate-400">Architecture</p>
+            <h2 class="mt-2 text-2xl font-black">Built as an Options Engine</h2>
+            <p class="mt-3 text-sm leading-6 text-slate-300">Strategies are configs plus legs. The engine owns chain data, risk checks, backtest lifecycle, and analytics. Short Strangle is only the first implemented strategy.</p>
+            <div class="mt-6 grid gap-3 md:grid-cols-3">
+              <div class="rounded-2xl bg-white/10 p-4 font-bold">IOptionBacktester</div>
+              <div class="rounded-2xl bg-white/10 p-4 font-bold">IOptionScanner</div>
+              <div class="rounded-2xl bg-white/10 p-4 font-bold">IOptionRiskManager</div>
+            </div>
+          </div>
+          <div class="rounded-3xl border border-amber-200 bg-amber-50 p-6">
+            <p class="font-black text-amber-950">Current Scope</p>
+            <p class="mt-2 text-sm leading-6 text-amber-800">Backtesting is active for stored option-chain snapshots. Paper/live trading adapters stay interface-only until chain data and reporting are battle-tested.</p>
+          </div>
+        </section>
+      </mat-tab>
+
+      <mat-tab label="0DTE Backtest">
+        <section class="crypto-tab-panel grid gap-6 p-4 lg:grid-cols-[420px,minmax(0,1fr)] lg:p-6">
+          <form [formGroup]="backtestForm" (ngSubmit)="runBacktest()" class="crypto-card self-start space-y-5">
+            <div>
+              <p class="text-xs font-black uppercase tracking-[0.2em] text-blue-600">Simulation</p>
+              <h2 class="mt-1 text-xl font-black text-slate-950">Run Options Backtest</h2>
+            </div>
+
+            <label class="crypto-field md:col-span-2">
+              <span>Strategy Config</span>
+              <select formControlName="strategyConfigId">
+                <option *ngFor="let config of configs" [ngValue]="config.id">{{ config.name }}</option>
+              </select>
+            </label>
+
+            <div class="grid gap-4 md:grid-cols-2">
+              <label class="crypto-field"><span>Exchange</span><input formControlName="exchange"></label>
+              <label class="crypto-field"><span>Symbol</span><input formControlName="symbol"></label>
+              <label class="crypto-field"><span>From</span><input type="date" formControlName="fromDate"></label>
+              <label class="crypto-field"><span>To</span><input type="date" formControlName="toDate"></label>
+              <label class="crypto-field"><span>Entry</span><input formControlName="entryTime"></label>
+              <label class="crypto-field"><span>Exit</span><input formControlName="exitTime"></label>
+              <label class="crypto-field"><span>Target Premium</span><input type="number" formControlName="targetPremiumPerLeg"></label>
+              <label class="crypto-field"><span>SL %</span><input type="number" formControlName="stopLossPercentPerLeg"></label>
+              <label class="crypto-field"><span>Mode</span><select formControlName="strikeSelectionMode"><option value="PremiumBased">Premium Based</option><option value="DistanceBased">Distance Based</option></select></label>
+              <label class="crypto-field"><span>Distance %</span><input type="number" formControlName="strikeDistancePercent"></label>
+              <label class="crypto-field"><span>Daily Loss</span><input type="number" formControlName="maxDailyLoss"></label>
+              <label class="crypto-field"><span>Lot Size</span><input type="number" formControlName="lotSize"></label>
+            </div>
+            <button mat-raised-button color="primary" class="w-full" type="submit">Run Backtest</button>
+          </form>
+
+          <div class="space-y-4 min-w-0">
+            <div class="grid gap-3 md:grid-cols-3" *ngIf="selectedRun">
+              <div class="crypto-mini-card"><p>Net P/L</p><strong [class.text-emerald-600]="selectedRun.totalPnl >= 0" [class.text-red-600]="selectedRun.totalPnl < 0">{{ format(selectedRun.totalPnl) }}</strong></div>
+              <div class="crypto-mini-card"><p>Profit Factor</p><strong>{{ format(selectedRun.profitFactor) }}</strong></div>
+              <div class="crypto-mini-card"><p>Trades</p><strong>{{ selectedRun.totalTrades }}</strong></div>
+            </div>
+            <div class="crypto-table-wrap">
+              <table class="crypto-table min-w-[760px]">
+                <thead><tr><th>Date</th><th>Net P/L</th><th>CE</th><th>PE</th><th>Risk</th></tr></thead>
+                <tbody>
+                  <tr *ngFor="let row of dailyPnl"><td>{{ row.tradeDate | date:'shortDate' }}</td><td [class.text-emerald-600]="row.netPnl >= 0" [class.text-red-600]="row.netPnl < 0">{{ format(row.netPnl) }}</td><td>{{ format(row.ceLegPnl) }}</td><td>{{ format(row.peLegPnl) }}</td><td>{{ row.isCircuitBreakerHit ? 'Circuit' : row.notes }}</td></tr>
+                  <tr *ngIf="!dailyPnl.length"><td colspan="5" class="text-center text-slate-500">Run a backtest to see daily P/L.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </mat-tab>
+
+      <mat-tab label="Strategy Config">
+        <section class="crypto-tab-panel grid gap-6 p-4 lg:grid-cols-[420px,minmax(0,1fr)] lg:p-6">
+          <form [formGroup]="configForm" (ngSubmit)="saveConfig()" class="crypto-card self-start space-y-5">
+            <div>
+              <p class="text-xs font-black uppercase tracking-[0.2em] text-blue-600">Builder</p>
+              <h2 class="mt-1 text-xl font-black text-slate-950">Create Strategy Config</h2>
+            </div>
+            <label class="crypto-field"><span>Name</span><input formControlName="name"></label>
+            <div class="grid gap-4 md:grid-cols-2">
+              <label class="crypto-field"><span>Type</span><select formControlName="strategyType"><option value="ShortStrangle">0DTE Short Strangle</option><option value="IronCondor" disabled>Iron Condor</option><option value="Custom" disabled>Custom Builder</option></select></label>
+              <label class="crypto-field"><span>Expiry</span><select formControlName="expiryType"><option value="Today">Today</option><option value="Tomorrow">Tomorrow</option><option value="Weekly">Weekly</option><option value="Monthly">Monthly</option></select></label>
+              <label class="crypto-field"><span>Underlying</span><input formControlName="underlying"></label>
+              <label class="crypto-field"><span>Symbol</span><input formControlName="symbol"></label>
+              <label class="crypto-field"><span>Target Premium</span><input type="number" formControlName="targetPremiumPerLeg"></label>
+              <label class="crypto-field"><span>SL %</span><input type="number" formControlName="stopLossPercentPerLeg"></label>
+            </div>
+            <button mat-raised-button color="primary" class="w-full">Save Config</button>
+          </form>
+          <div class="min-w-0 space-y-3">
+            <div *ngFor="let config of configs" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h3 class="font-black text-slate-950">{{ config.name }}</h3><span class="self-start rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">{{ config.strategyType }}</span></div>
+              <p class="mt-2 text-sm text-slate-500">{{ config.exchange }} &middot; {{ config.symbol }} &middot; {{ config.expiryType }} &middot; {{ config.entryTime }}-{{ config.exitTime }}</p>
+            </div>
+          </div>
+        </section>
+      </mat-tab>
+
+      <mat-tab label="Option Chain">
+        <section class="crypto-tab-panel space-y-5 p-4 lg:p-6">
+          <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p class="text-xs font-black uppercase tracking-[0.2em] text-blue-600">Live Market Data</p>
+                <h2 class="mt-1 text-xl font-black text-slate-950">Delta Options Chain</h2>
+                <p class="mt-1 text-sm text-slate-500">Uses Delta public market-data endpoints. No API key is needed for chain research; trading still stays disabled here.</p>
+              </div>
+              <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+                Free public fetch: products + tickers
+              </div>
+            </div>
+
+            <form [formGroup]="chainForm" class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+              <label class="crypto-field xl:col-span-2"><span>Exchange</span><select formControlName="exchange"><option>Delta Exchange India</option><option>Delta Exchange Global</option><option>Delta Testnet</option></select></label>
+              <label class="crypto-field"><span>Underlying</span><select formControlName="underlying" (change)="onUnderlyingChange()"><option>BTC</option><option>ETH</option></select></label>
+              <label class="crypto-field"><span>Symbol</span><input formControlName="symbol"></label>
+              <label class="crypto-field"><span>Expiry</span><select formControlName="expiryDate"><option value="">Nearest active</option><option *ngFor="let expiry of expiries" [value]="expiry.expiryDate.substring(0, 10)">{{ expiry.label }} <span *ngIf="expiry.timeToExpiryHours">({{ expiry.timeToExpiryHours }}h)</span></option></select></label>
+              <label class="crypto-field"><span>Save</span><select formControlName="saveSnapshot"><option [ngValue]="true">Save snapshot</option><option [ngValue]="false">Preview only</option></select></label>
+            </form>
+
+            <div class="mt-5 flex flex-wrap gap-3">
+              <button mat-stroked-button color="primary" (click)="loadDeltaExpiries()" [disabled]="chainLoading">Load Expiries</button>
+              <button mat-raised-button color="primary" (click)="fetchDeltaChain()" [disabled]="chainLoading">Fetch Option Chain</button>
+              <span *ngIf="chainLoading" class="self-center text-sm font-semibold text-slate-500">Fetching Delta data...</span>
+            </div>
+          </div>
+
+          <div *ngIf="chainWarnings.length" class="space-y-2">
+            <div *ngFor="let warning of chainWarnings" class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">{{ warning }}</div>
+          </div>
+
+          <div class="grid gap-4 lg:grid-cols-3" *ngIf="chainResult">
+            <div class="crypto-mini-card"><p>Underlying</p><strong>{{ chainResult.underlyingPrice || 0 }}</strong></div>
+            <div class="crypto-mini-card"><p>Rows Fetched</p><strong>{{ liveChainRows.length }}</strong></div>
+            <div class="crypto-mini-card"><p>Rows Saved</p><strong>{{ chainResult.imported }}</strong></div>
+          </div>
+
+          <div class="grid gap-4 lg:grid-cols-2" *ngIf="chainSuggestions.length">
+            <div *ngFor="let suggestion of chainSuggestions" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <h3 class="text-lg font-black text-slate-950">{{ suggestion.strategyType }}</h3>
+                <span class="rounded-full px-3 py-1 text-xs font-black" [class.bg-emerald-100]="suggestion.status === 'Ready'" [class.text-emerald-700]="suggestion.status === 'Ready'" [class.bg-amber-100]="suggestion.status !== 'Ready'" [class.text-amber-800]="suggestion.status !== 'Ready'">{{ suggestion.status }}</span>
+              </div>
+              <p class="mt-2 text-sm font-semibold text-slate-700">{{ suggestion.recommendation }}</p>
+              <div class="mt-4 grid gap-3 sm:grid-cols-3">
+                <div class="rounded-2xl bg-slate-50 p-3"><p class="text-xs font-black uppercase text-slate-400">CE</p><strong>{{ suggestion.callStrike || '-' }} / {{ suggestion.callPremium || '-' }}</strong></div>
+                <div class="rounded-2xl bg-slate-50 p-3"><p class="text-xs font-black uppercase text-slate-400">PE</p><strong>{{ suggestion.putStrike || '-' }} / {{ suggestion.putPremium || '-' }}</strong></div>
+                <div class="rounded-2xl bg-slate-50 p-3"><p class="text-xs font-black uppercase text-slate-400">Credit</p><strong>{{ suggestion.estimatedCredit || '-' }}</strong></div>
+              </div>
+              <p class="mt-3 text-xs font-semibold text-slate-500">{{ suggestion.reason }}</p>
+            </div>
+          </div>
+
+          <div class="crypto-table-wrap">
+            <table class="crypto-table min-w-[1120px]"><thead><tr><th>Time</th><th>Exchange</th><th>Symbol</th><th>Expiry</th><th>Strike</th><th>CE Bid</th><th>CE Ask</th><th>CE Mark</th><th>PE Bid</th><th>PE Ask</th><th>PE Mark</th><th>Underlying</th></tr></thead><tbody><tr *ngFor="let row of (liveChainRows.length ? liveChainRows : snapshots)"><td>{{ row.snapshotTime | date:'short' }}</td><td>{{ row.exchange }}</td><td>{{ row.symbol }}</td><td>{{ row.expiryDate | date:'shortDate' }}</td><td>{{ row.strike }}</td><td>{{ row.callBid || '-' }}</td><td>{{ row.callAsk || '-' }}</td><td>{{ row.callPremium || '-' }}</td><td>{{ row.putBid || '-' }}</td><td>{{ row.putAsk || '-' }}</td><td>{{ row.putPremium || '-' }}</td><td>{{ row.underlyingPrice }}</td></tr><tr *ngIf="!(liveChainRows.length || snapshots.length)"><td colspan="12" class="text-center text-slate-500">No chain snapshots yet. Click Load Expiries, then Fetch Option Chain.</td></tr></tbody></table>
+          </div>
+        </section>
+      </mat-tab>
+
+      <mat-tab label="Backtest Runs">
+        <section class="crypto-tab-panel p-4 lg:p-6">
+          <div class="crypto-table-wrap"><table class="crypto-table min-w-[900px]"><thead><tr><th>Strategy</th><th>Symbol</th><th>Status</th><th>P/L</th><th>PF</th><th>Trades</th><th>Action</th></tr></thead><tbody><tr *ngFor="let run of runs"><td>{{ run.strategyName }}</td><td>{{ run.symbol }}</td><td>{{ run.status }}</td><td>{{ format(run.totalPnl) }}</td><td>{{ format(run.profitFactor) }}</td><td>{{ run.totalTrades }}</td><td><button mat-button color="primary" (click)="loadRun(run)">Open</button></td></tr><tr *ngIf="!runs.length"><td colspan="7" class="text-center text-slate-500">No backtest runs yet.</td></tr></tbody></table></div>
+        </section>
+      </mat-tab>
+
+      <mat-tab label="Leg Trades">
+        <section class="crypto-tab-panel p-4 lg:p-6">
+          <div class="crypto-table-wrap"><table class="crypto-table min-w-[900px]"><thead><tr><th>Leg</th><th>Action</th><th>Strike</th><th>Entry</th><th>Exit</th><th>P/L</th><th>Reason</th></tr></thead><tbody><tr *ngFor="let trade of trades"><td>{{ trade.legType }}</td><td>{{ trade.action }}</td><td>{{ trade.strike }}</td><td>{{ trade.entryPremium }}</td><td>{{ trade.exitPremium || '-' }}</td><td [class.text-emerald-600]="trade.pnl >= 0" [class.text-red-600]="trade.pnl < 0">{{ format(trade.pnl) }}</td><td>{{ trade.exitReason }}</td></tr><tr *ngIf="!trades.length"><td colspan="7" class="text-center text-slate-500">Open a backtest run to see leg trades.</td></tr></tbody></table></div>
+        </section>
+      </mat-tab>
+
+      <mat-tab label="Risk Report">
+        <section class="crypto-tab-panel grid gap-4 p-4 sm:grid-cols-2 xl:grid-cols-4 lg:p-6">
+          <div class="crypto-mini-card"><p>Circuit Days</p><strong>{{ risk?.circuitBreakerDays || 0 }}</strong></div>
+          <div class="crypto-mini-card"><p>SL Hits</p><strong class="text-red-600">{{ risk?.stopLossHits || 0 }}</strong></div>
+          <div class="crypto-mini-card"><p>Worst Day</p><strong>{{ format(risk?.worstDayPnl) }}</strong></div>
+          <div class="crypto-mini-card"><p>Max DD</p><strong>{{ format(risk?.maxDrawdown) }}</strong></div>
+        </section>
+      </mat-tab>
+    </mat-tab-group>
+  </div>
+</div>
+
+

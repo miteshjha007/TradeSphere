@@ -221,6 +221,7 @@
                 <th *ngIf="isTradeColumnVisible('pnl')" class="px-4 py-3 text-right">P/L</th>
                 <th *ngIf="isTradeColumnVisible('status')" class="px-4 py-3">Status</th>
                 <th *ngIf="isTradeColumnVisible('reason')" class="px-4 py-3">Reason</th>
+                <th *ngIf="isTradeColumnVisible('actions')" class="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -258,6 +259,13 @@
                   </span>
                 </td>
                 <td *ngIf="isTradeColumnVisible('reason')" class="px-4 py-3 max-w-md text-gray-600">{{ trade.errorReason || trade.externalOrderId || '-' }}</td>
+                <td *ngIf="isTradeColumnVisible('actions')" class="px-4 py-3 text-right">
+                  <button *ngIf="trade.canResumeAutoRisk" type="button" (click)="resumeAutoRisk(trade)"
+                    class="rounded-md border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 hover:bg-orange-100">
+                    Resume Auto Risk
+                  </button>
+                  <span *ngIf="!trade.canResumeAutoRisk" class="text-gray-400">-</span>
+                </td>
               </tr>
               <tr *ngIf="filteredTrades.length === 0">
                 <td [attr.colspan]="visibleTradeColumnCount" class="px-4 py-8 text-center text-gray-500">No trade attempts recorded yet.</td>

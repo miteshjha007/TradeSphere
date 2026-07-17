@@ -9,7 +9,7 @@ import { TradingOverview, TradingService } from '../../services/trading.service'
 export class AnalyticsComponent implements OnInit {
   private readonly reportColumnStorageKey = 'tradesphere.report.visibleColumns';
 
-  data: TradingOverview = { trades: [], positions: [] };
+  data: TradingOverview = { trades: [], positions: [], realizedPnl: 0 };
   isLoading = true;
   errorMessage = '';
   filters = {
@@ -36,7 +36,8 @@ export class AnalyticsComponent implements OnInit {
     { key: 'price', label: 'Price' },
     { key: 'pnl', label: 'P/L' },
     { key: 'status', label: 'Status' },
-    { key: 'reason', label: 'Reason' }
+    { key: 'reason', label: 'Reason' },
+    { key: 'actions', label: 'Actions' }
   ];
   visibleTradeColumns: Record<string, boolean> = this.tradeColumns.reduce((columns, column) => {
     columns[column.key] = true;
@@ -59,7 +60,7 @@ export class AnalyticsComponent implements OnInit {
         this.data = res;
         this.isLoading = false;
       },
-      error: (err) => {
+      error: (err: any) => {
         this.errorMessage = err.error?.message || 'Failed to load trading activity.';
         this.isLoading = false;
       }
@@ -71,6 +72,10 @@ export class AnalyticsComponent implements OnInit {
   }
 
   get realizedPnl(): number {
+    if (!this.hasActiveFilters()) {
+      return this.data.realizedPnl || 0;
+    }
+
     return this.filteredTrades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
   }
 
@@ -81,7 +86,8 @@ export class AnalyticsComponent implements OnInit {
   statusClass(status: string): string {
     if (status === 'Filled' || status === 'Open' || status === 'Closed') return 'bg-green-50 text-green-700 border-green-200';
     if (status === 'Modified') return 'bg-blue-50 text-blue-700 border-blue-200';
-    if (status === 'Pending' || status === 'Reconciled') return 'bg-amber-50 text-amber-700 border-amber-200';
+    if (status === 'Pending' || status === 'Reconciled' || status === 'Resolved') return 'bg-amber-50 text-amber-700 border-amber-200';
+    if (status === 'Manual Override') return 'bg-orange-50 text-orange-700 border-orange-200';
     if (status === 'Failed') return 'bg-red-50 text-red-700 border-red-200';
     return 'bg-gray-50 text-gray-700 border-gray-200';
   }
@@ -89,6 +95,7 @@ export class AnalyticsComponent implements OnInit {
   activityClass(activity: string): string {
     if (activity === 'Entry') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     if (activity === 'Risk Update') return 'bg-blue-50 text-blue-700 border-blue-200';
+    if (activity === 'Manual SL Override') return 'bg-orange-50 text-orange-700 border-orange-200';
     if (activity === 'Exit Signal' || activity === 'Closed') return 'bg-purple-50 text-purple-700 border-purple-200';
     if (activity === 'Failed') return 'bg-red-50 text-red-700 border-red-200';
     return 'bg-gray-50 text-gray-700 border-gray-200';
@@ -206,12 +213,39 @@ export class AnalyticsComponent implements OnInit {
 
     this.tradingService.deleteAllTrades().subscribe({
       next: () => this.loadTradingOverview(),
-      error: (err) => {
+      error: (err: any) => {
         this.errorMessage = err.error?.message || 'Failed to delete trade records.';
       }
     });
   }
 
+
+  resumeAutoRisk(trade: any): void {
+    if (!trade.canResumeAutoRisk) {
+      return;
+    }
+
+    if (!confirm('Resume TradeSphere breakeven/trailing for this MT5 ticket?')) {
+      return;
+    }
+
+    this.tradingService.resumeAutoRisk(trade.id).subscribe({
+      next: () => this.loadTradingOverview(),
+      error: (err: any) => {
+        this.errorMessage = err.error?.message || 'Failed to resume auto risk management.';
+      }
+    });
+  }
+  private hasActiveFilters(): boolean {
+    return Boolean(
+      this.filters.strategy ||
+      this.filters.source ||
+      this.filters.account ||
+      this.filters.symbol ||
+      this.filters.startDate ||
+      this.filters.endDate
+    );
+  }
   private matchesFilter(value: string | null | undefined, filter: string): boolean {
     return !filter || (value || '') === filter;
   }

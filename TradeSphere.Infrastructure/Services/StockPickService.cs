@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using TradeSphere.Application.Common.Interfaces;
@@ -124,6 +124,264 @@ namespace TradeSphere.Infrastructure.Services
             return dashboard;
         }
 
+        public async Task<StockAnalysisDto> AnalyzeStockAsync(StockAnalysisRequestDto request, CancellationToken cancellationToken = default)
+        {
+            var symbol = NormalizeSymbol(request.Symbol);
+            if (string.IsNullOrWhiteSpace(symbol))
+            {
+                throw new ArgumentException("Stock symbol is required.");
+            }
+
+            var horizon = IsLongTerm(request.Horizon) ? "Long Term" : "Short Term";
+            var range = horizon == "Long Term" ? "2y" : "6mo";
+            var series = await FetchCandlesAsync(new StockUniverseItem(symbol, symbol), range, cancellationToken);
+            if (series == null || series.Candles.Count < (horizon == "Long Term" ? 180 : 60))
+            {
+                return new StockAnalysisDto
+                {
+                    LastUpdatedAt = DateTime.UtcNow,
+                    Symbol = symbol,
+                    Name = symbol,
+                    Horizon = horizon,
+                    Verdict = "No Data",
+                    Recommendation = "Could not generate analysis because candle data is unavailable or insufficient.",
+                    Risk = "Unknown",
+                    Warnings = { "Free market-data source did not return enough NSE candles. Try NSE symbol without .NS, for example RELIANCE, HDFCBANK, TCS." }
+                };
+            }
+
+            var analysis = horizon == "Long Term"
+                ? BuildLongTermAnalysis(series)
+                : BuildShortTermAnalysis(series);
+
+            var fundamentals = await FetchFundamentalsAsync(symbol, cancellationToken);
+            ApplyFundamentalSignals(analysis, fundamentals, horizon);
+            analysis.OverallScore = Math.Round(analysis.FundamentalScore > 0
+                ? analysis.TechnicalScore * 0.62m + analysis.FundamentalScore * 0.38m
+                : analysis.TechnicalScore, 2);
+            analysis.Verdict = BuildVerdict(analysis.OverallScore, horizon);
+            analysis.Recommendation = BuildRecommendation(analysis, horizon);
+            return analysis;
+        }
+
+        private static StockAnalysisDto BuildShortTermAnalysis(StockCandleSeries series)
+        {
+            var candles = series.Candles;
+            var last = candles[^1];
+            var prev = candles[^2];
+            var sma20 = Average(candles.TakeLast(20).Select(c => c.Close));
+            var sma50 = Average(candles.TakeLast(50).Select(c => c.Close));
+            var atr14 = AverageTrueRange(candles, 14);
+            var recentHigh = candles.TakeLast(20).Max(c => c.High);
+            var recentLow = candles.TakeLast(20).Min(c => c.Low);
+            var change1D = Percent(last.Close, prev.Close);
+            var change5D = Percent(last.Close, candles[^6].Close);
+            var change20D = Percent(last.Close, candles[^21].Close);
+            var volumeRatio = Average(candles.TakeLast(20).SkipLast(1).Select(c => c.Volume)) > 0
+                ? last.Volume / Average(candles.TakeLast(20).SkipLast(1).Select(c => c.Volume))
+                : 0;
+            var trendStrength = Percent(last.Close, sma20);
+            var volatility = last.Close > 0 ? atr14 / last.Close * 100 : 0;
+
+            var score = 42m
+                + Math.Clamp(change5D * 2m, -16m, 22m)
+                + Math.Clamp(trendStrength * 1.5m, -14m, 18m)
+                + Math.Clamp((volumeRatio - 1m) * 14m, -8m, 16m)
+                + (last.Close > sma20 ? 8m : -6m)
+                + (sma20 > sma50 ? 8m : -5m)
+                - Math.Clamp(volatility * 0.8m, 0m, 8m);
+
+            var entryLow = Math.Max(sma20, last.Close - atr14 * 0.45m);
+            var entryHigh = last.Close + atr14 * 0.25m;
+            var stop = Math.Min(recentLow, last.Close - atr14 * 1.15m);
+            var target1 = last.Close + atr14 * 1.2m;
+            var target2 = Math.Max(recentHigh, last.Close + atr14 * 2m);
+
+            var dto = CreateAnalysis(series, "Short Term", score, last.Close, change1D, change5D, change20D, volatility);
+            dto.EntryZone = $"Rs. {entryLow:0.##} - Rs. {entryHigh:0.##}; prefer breakout above Rs. {recentHigh:0.##} only if volume supports.";
+            dto.StopLoss = $"Below Rs. {stop:0.##}";
+            dto.Target1 = $"Rs. {target1:0.##}";
+            dto.Target2 = $"Rs. {target2:0.##}";
+            dto.Risk = volatility >= 3 ? "High" : volatility >= 1.8m ? "Medium" : "Low/Medium";
+            dto.TechnicalSignals.Add($"Price vs SMA20: {trendStrength:0.##}% ({(last.Close > sma20 ? "bullish" : "weak")}).");
+            dto.TechnicalSignals.Add($"SMA20 {(sma20 > sma50 ? "above" : "below")} SMA50, trend structure {(sma20 > sma50 ? "positive" : "not confirmed")}.");
+            dto.TechnicalSignals.Add($"5D momentum {change5D:0.##}%, 20D momentum {change20D:0.##}%.");
+            dto.TechnicalSignals.Add($"ATR volatility {volatility:0.##}% and volume ratio {volumeRatio:0.##}x.");
+            return dto;
+        }
+
+        private static StockAnalysisDto BuildLongTermAnalysis(StockCandleSeries series)
+        {
+            var candles = series.Candles;
+            var last = candles[^1];
+            var sma50 = Average(candles.TakeLast(50).Select(c => c.Close));
+            var sma200 = Average(candles.TakeLast(Math.Min(200, candles.Count)).Select(c => c.Close));
+            var high52 = candles.TakeLast(Math.Min(252, candles.Count)).Max(c => c.High);
+            var low52 = candles.TakeLast(Math.Min(252, candles.Count)).Min(c => c.Low);
+            var atr20 = AverageTrueRange(candles, 20);
+            var change1D = Percent(last.Close, candles[^2].Close);
+            var change5D = Percent(last.Close, candles[^6].Close);
+            var change20D = Percent(last.Close, candles[^21].Close);
+            var change6M = Percent(last.Close, candles[^Math.Min(126, candles.Count)].Close);
+            var change1Y = Percent(last.Close, candles[^Math.Min(252, candles.Count)].Close);
+            var drawdown = high52 > 0 ? (high52 - last.Close) / high52 * 100 : 0;
+            var trendStrength = Percent(last.Close, sma200);
+            var volatility = last.Close > 0 ? atr20 / last.Close * 100 : 0;
+
+            var score = 44m
+                + Math.Clamp(change1Y * 0.42m, -18m, 24m)
+                + Math.Clamp(change6M * 0.5m, -12m, 20m)
+                + (last.Close > sma50 && sma50 > sma200 ? 18m : 0m)
+                - Math.Clamp(drawdown * 0.35m, 0m, 14m)
+                - Math.Clamp(volatility * 1.4m, 0m, 10m);
+
+            var dto = CreateAnalysis(series, "Long Term", score, last.Close, change1D, change5D, change20D, volatility);
+            dto.EntryZone = $"Accumulate in 3-4 parts near Rs. {last.Close:0.##}; better add zone Rs. {Math.Min(last.Close, sma50):0.##} - Rs. {Math.Max(last.Close, sma50):0.##}.";
+            dto.StopLoss = $"Long-term thesis review below SMA200 Rs. {sma200:0.##} or 52W low Rs. {low52:0.##}.";
+            dto.Target1 = $"52W high retest Rs. {high52:0.##}";
+            dto.Target2 = $"Trail if quarterly earnings and sector trend stay strong; avoid fixed blind target.";
+            dto.Risk = volatility >= 3 ? "High" : drawdown <= 12 ? "Low/Medium" : "Medium";
+            dto.TechnicalSignals.Add($"1Y trend {change1Y:0.##}%, 6M trend {change6M:0.##}%.");
+            dto.TechnicalSignals.Add(last.Close > sma50 && sma50 > sma200 ? "Price is above SMA50 and SMA50 is above SMA200." : "Moving-average trend is not fully confirmed yet.");
+            dto.TechnicalSignals.Add($"Drawdown from 52W high {drawdown:0.##}%; trend vs SMA200 {trendStrength:0.##}%.");
+            dto.TechnicalSignals.Add($"ATR volatility {volatility:0.##}%.");
+            return dto;
+        }
+
+        private async Task<StockFundamentals> FetchFundamentalsAsync(string symbol, CancellationToken cancellationToken)
+        {
+            var fundamentals = new StockFundamentals();
+            try
+            {
+                var yahooSymbol = $"{symbol}.NS";
+                var url = $"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{yahooSymbol}?modules=financialData,defaultKeyStatistics,summaryDetail,price";
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.UserAgent.ParseAdd("Mozilla/5.0 TradeSphere/1.0");
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return fundamentals;
+                }
+
+                var root = await response.Content.ReadFromJsonAsync<JsonNode>(cancellationToken: cancellationToken);
+                var result = root?["quoteSummary"]?["result"]?[0];
+                fundamentals.LongName = ReadString(result?["price"]?["longName"]);
+                fundamentals.MarketCap = ReadRawDecimal(result?["price"]?["marketCap"]);
+                fundamentals.TrailingPe = ReadRawDecimal(result?["summaryDetail"]?["trailingPE"]);
+                fundamentals.ForwardPe = ReadRawDecimal(result?["summaryDetail"]?["forwardPE"]);
+                fundamentals.RoePercent = ReadRawDecimal(result?["financialData"]?["returnOnEquity"]) * 100;
+                fundamentals.DebtToEquity = ReadRawDecimal(result?["financialData"]?["debtToEquity"]);
+                fundamentals.RevenueGrowthPercent = ReadRawDecimal(result?["financialData"]?["revenueGrowth"]) * 100;
+                fundamentals.ProfitMarginsPercent = ReadRawDecimal(result?["financialData"]?["profitMargins"]) * 100;
+                fundamentals.HasAnyData = fundamentals.MarketCap > 0 || fundamentals.TrailingPe > 0 || fundamentals.RoePercent != 0 || fundamentals.RevenueGrowthPercent != 0;
+            }
+            catch
+            {
+                fundamentals.HasAnyData = false;
+            }
+
+            return fundamentals;
+        }
+
+        private static void ApplyFundamentalSignals(StockAnalysisDto analysis, StockFundamentals fundamentals, string horizon)
+        {
+            if (!string.IsNullOrWhiteSpace(fundamentals.LongName))
+            {
+                analysis.Name = fundamentals.LongName;
+            }
+
+            if (!fundamentals.HasAnyData)
+            {
+                analysis.FundamentalScore = horizon == "Long Term" ? 42 : 50;
+                analysis.FundamentalSignals.Add("Fundamental ratios were not available from the free public feed, so recommendation is mostly technical.");
+                analysis.Warnings.Add("For long-term investing, verify quarterly results, debt, promoter holding, and valuation on Screener/NSE before buying.");
+                return;
+            }
+
+            var score = 45m;
+            if (fundamentals.RoePercent >= 15) score += 14; else if (fundamentals.RoePercent > 0) score += 5;
+            if (fundamentals.RevenueGrowthPercent >= 10) score += 12; else if (fundamentals.RevenueGrowthPercent < 0) score -= 8;
+            if (fundamentals.ProfitMarginsPercent >= 10) score += 10; else if (fundamentals.ProfitMarginsPercent < 3 && fundamentals.ProfitMarginsPercent != 0) score -= 5;
+            if (fundamentals.DebtToEquity > 0 && fundamentals.DebtToEquity <= 80) score += 8; else if (fundamentals.DebtToEquity > 150) score -= 10;
+            if (fundamentals.TrailingPe > 0 && fundamentals.TrailingPe <= 45) score += 7; else if (fundamentals.TrailingPe > 80) score -= 8;
+
+            analysis.FundamentalScore = Math.Round(Math.Clamp(score, 0, 100), 2);
+            if (fundamentals.MarketCap > 0) analysis.FundamentalSignals.Add($"Market cap approx Rs. {fundamentals.MarketCap / 10000000m:0.##} Cr.");
+            if (fundamentals.TrailingPe > 0) analysis.FundamentalSignals.Add($"Trailing PE {fundamentals.TrailingPe:0.##}; forward PE {fundamentals.ForwardPe:0.##}.");
+            if (fundamentals.RoePercent != 0) analysis.FundamentalSignals.Add($"ROE {fundamentals.RoePercent:0.##}%.");
+            if (fundamentals.RevenueGrowthPercent != 0) analysis.FundamentalSignals.Add($"Revenue growth {fundamentals.RevenueGrowthPercent:0.##}%.");
+            if (fundamentals.ProfitMarginsPercent != 0) analysis.FundamentalSignals.Add($"Profit margin {fundamentals.ProfitMarginsPercent:0.##}%.");
+            if (fundamentals.DebtToEquity > 0) analysis.FundamentalSignals.Add($"Debt/equity {fundamentals.DebtToEquity:0.##}.");
+        }
+
+        private static StockAnalysisDto CreateAnalysis(StockCandleSeries series, string horizon, decimal technicalScore, decimal lastPrice, decimal change1D, decimal change5D, decimal change20D, decimal volatility)
+        {
+            return new StockAnalysisDto
+            {
+                LastUpdatedAt = DateTime.UtcNow,
+                Symbol = series.Symbol,
+                Name = series.Name,
+                Horizon = horizon,
+                LastPrice = Math.Round(lastPrice, 2),
+                TechnicalScore = Math.Round(Math.Clamp(technicalScore, 0, 100), 2),
+                Change1DPercent = Math.Round(change1D, 2),
+                Change5DPercent = Math.Round(change5D, 2),
+                Change20DPercent = Math.Round(change20D, 2),
+                VolatilityPercent = Math.Round(volatility, 2)
+            };
+        }
+
+        private static string BuildVerdict(decimal score, string horizon)
+        {
+            if (score >= 72) return horizon == "Long Term" ? "Buy / Accumulate" : "Buy Watch";
+            if (score >= 58) return "Wait for Pullback / Confirmation";
+            if (score >= 45) return "Neutral";
+            return "Avoid for now";
+        }
+
+        private static string BuildRecommendation(StockAnalysisDto analysis, string horizon)
+        {
+            if (analysis.OverallScore >= 72)
+            {
+                return horizon == "Long Term"
+                    ? "Can be considered for phased accumulation if fundamentals are verified and market trend remains supportive."
+                    : "Can be considered only near the entry zone with strict stop-loss; avoid chasing gaps."
+                    ;
+            }
+
+            if (analysis.OverallScore >= 58)
+            {
+                return "Setup is decent, but wait for price confirmation near the entry zone or better risk-reward.";
+            }
+
+            if (analysis.OverallScore >= 45)
+            {
+                return "No clear edge right now. Keep on watchlist, but do not force entry.";
+            }
+
+            return "Avoid fresh buy for now; technical/fundamental score is weak or data quality is insufficient.";
+        }
+
+        private static string NormalizeSymbol(string symbol)
+        {
+            return (symbol ?? string.Empty).Trim().ToUpperInvariant().Replace(".NS", string.Empty).Replace("NSE:", string.Empty);
+        }
+
+        private static bool IsLongTerm(string horizon)
+        {
+            return (horizon ?? string.Empty).Contains("long", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string ReadString(JsonNode? node)
+        {
+            return node?.ToString() ?? string.Empty;
+        }
+
+        private static decimal ReadRawDecimal(JsonNode? node)
+        {
+            var raw = node?["raw"] ?? node;
+            return ReadDecimal(raw);
+        }
         private async Task<List<StockCandleSeries>> FetchUniverseAsync(IEnumerable<StockUniverseItem> universe, string range, CancellationToken cancellationToken)
         {
             var tasks = universe.Select(item => FetchCandlesAsync(item, range, cancellationToken));
@@ -356,8 +614,24 @@ namespace TradeSphere.Infrastructure.Services
             return decimal.TryParse(node.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var value) ? value : 0;
         }
 
+        private sealed class StockFundamentals
+        {
+            public bool HasAnyData { get; set; }
+            public string LongName { get; set; } = string.Empty;
+            public decimal MarketCap { get; set; }
+            public decimal TrailingPe { get; set; }
+            public decimal ForwardPe { get; set; }
+            public decimal RoePercent { get; set; }
+            public decimal DebtToEquity { get; set; }
+            public decimal RevenueGrowthPercent { get; set; }
+            public decimal ProfitMarginsPercent { get; set; }
+        }
         private sealed record StockUniverseItem(string Symbol, string Name);
         private sealed record StockCandle(decimal Open, decimal High, decimal Low, decimal Close, decimal Volume);
         private sealed record StockCandleSeries(string Symbol, string Name, List<StockCandle> Candles);
     }
 }
+
+
+
+

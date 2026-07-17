@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+﻿import { Component, OnDestroy, OnInit } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, Subscription } from 'rxjs';
 import { StockPick, StockPickDashboard, StockPicksService } from '../../services/stock-picks.service';
@@ -19,13 +19,16 @@ export class StockPicksDashboardComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.updateModeFromUrl();
-    this.loadPicks();
+    if (!this.isAnalyzerMode()) {
+      this.loadPicks();
+    }
+
     this.routerSubscription = this.router.events
       .pipe(filter(event => event instanceof NavigationEnd))
       .subscribe(() => {
         const previousMode = this.mode;
         this.updateModeFromUrl();
-        if (previousMode !== this.mode) {
+        if (!this.isAnalyzerMode() && previousMode !== this.mode) {
           this.loadPicks();
         }
       });
@@ -33,6 +36,10 @@ export class StockPicksDashboardComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.routerSubscription?.unsubscribe();
+  }
+
+  isAnalyzerMode(): boolean {
+    return this.router.url.includes('stock-analyzer');
   }
 
   loadPicks(): void {

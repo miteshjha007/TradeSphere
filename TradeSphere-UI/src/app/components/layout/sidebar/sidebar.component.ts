@@ -8,7 +8,8 @@ import { AuthService } from '../../../modules/auth/services/auth.service';
     styleUrls: []
 })
 export class SidebarComponent {
-    isIndianMarketExpanded = true;
+    isIndianMarketExpanded = false;
+    isCryptoOptionsExpanded = false;
 
     constructor(private authService: AuthService, private router: Router) { }
 
@@ -18,6 +19,14 @@ export class SidebarComponent {
 
     toggleIndianMarket(): void {
         this.isIndianMarketExpanded = !this.isIndianMarketExpanded;
+    }
+
+    isCryptoOptionsActive(): boolean {
+        return this.router.url.startsWith('/crypto-options');
+    }
+
+    toggleCryptoOptions(): void {
+        this.isCryptoOptionsExpanded = !this.isCryptoOptionsExpanded;
     }
 
     logout() {

@@ -72,6 +72,15 @@ namespace TradeSphere.Infrastructure.Seed
                 PropertyNameCaseInsensitive = true
             }) ?? new List<StrategyTemplateSeed>();
 
+            var staleTemplateLogicTypes = new[] { "FIB-55-EMA-V3" };
+            var staleTemplates = await context.Strategies
+                .Where(s => s.CreatedBy == null && staleTemplateLogicTypes.Contains(s.LogicType))
+                .ToListAsync(cancellationToken);
+
+            if (staleTemplates.Count > 0)
+            {
+                context.Strategies.RemoveRange(staleTemplates);
+            }
             foreach (var template in templates)
             {
                 var strategy = await context.Strategies

@@ -22,6 +22,7 @@ export interface TradeRecord {
   errorReason?: string | null;
   brokerTicket?: string | null;
   activityType: string;
+  canResumeAutoRisk: boolean;
 }
 
 export interface PositionRecord {
@@ -41,6 +42,7 @@ export interface PositionRecord {
 export interface TradingOverview {
   trades: TradeRecord[];
   positions: PositionRecord[];
+  realizedPnl: number;
 }
 
 @Injectable({
@@ -57,6 +59,10 @@ export class TradingService {
 
   deleteAllTrades(): Observable<void> {
     return this.http.delete<void>(`${this.apiUrl}/trades`, { headers: this.getHeaders() });
+  }
+
+  resumeAutoRisk(tradeId: number): Observable<void> {
+    return this.http.post<void>(`${this.apiUrl}/trades/${tradeId}/resume-auto-risk`, {}, { headers: this.getHeaders() });
   }
 
   private getHeaders(): HttpHeaders {

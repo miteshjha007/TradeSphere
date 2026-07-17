@@ -38,7 +38,8 @@
     </div>
 
     <!-- Strategy cards -->
-    <div class="flex flex-col gap-4" *ngIf="!isLoading">
+    <div class="strategy-scroll-panel" *ngIf="!isLoading && activeStrategies.length > 0">
+      <div class="flex flex-col gap-4 pr-2">
       <div *ngFor="let s of activeStrategies"
         class="bg-white rounded-2xl border shadow-sm overflow-hidden transition-all duration-200"
         [ngClass]="{

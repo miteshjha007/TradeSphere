@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Microsoft.EntityFrameworkCore;
 using TradeSphere.Domain.Entities;
 
@@ -29,6 +29,15 @@ namespace TradeSphere.Infrastructure.Persistence
         public DbSet<PropFirm> PropFirms { get; set; }
         public DbSet<PropFirmAccount> PropFirmAccounts { get; set; }
         public DbSet<StrategyHealthSnapshot> StrategyHealthSnapshots { get; set; }
+        public DbSet<CryptoOptionStrategyConfig> CryptoOptionStrategyConfigs { get; set; }
+        public DbSet<CryptoOptionStrategyLeg> CryptoOptionStrategyLegs { get; set; }
+        public DbSet<CryptoOptionChainSnapshot> CryptoOptionChainSnapshots { get; set; }
+        public DbSet<CryptoOptionBacktestRun> CryptoOptionBacktestRuns { get; set; }
+        public DbSet<CryptoOptionBacktestPosition> CryptoOptionBacktestPositions { get; set; }
+        public DbSet<CryptoOptionBacktestLeg> CryptoOptionBacktestLegs { get; set; }
+        public DbSet<CryptoOptionBacktestLegEvent> CryptoOptionBacktestLegEvents { get; set; }
+        public DbSet<CryptoOptionDailyPnl> CryptoOptionDailyPnls { get; set; }
+        public DbSet<CryptoOptionScannerResult> CryptoOptionScannerResults { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -63,6 +72,58 @@ namespace TradeSphere.Infrastructure.Persistence
                 .HasForeignKey(h => h.UserStrategyId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+
+            modelBuilder.Entity<CryptoOptionStrategyConfig>()
+                .HasIndex(c => new { c.UserId, c.Name }).IsUnique();
+
+            modelBuilder.Entity<CryptoOptionStrategyLeg>()
+                .HasOne(l => l.StrategyConfig)
+                .WithMany(c => c.Legs)
+                .HasForeignKey(l => l.StrategyConfigId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CryptoOptionChainSnapshot>()
+                .HasIndex(s => new { s.Exchange, s.Symbol, s.ExpiryDate, s.SnapshotTime });
+
+            modelBuilder.Entity<CryptoOptionChainSnapshot>()
+                .HasIndex(s => new { s.Exchange, s.Symbol, s.ExpiryDate, s.Strike, s.SnapshotTime });
+
+            modelBuilder.Entity<CryptoOptionBacktestRun>()
+                .HasIndex(r => new { r.UserId, r.StartedAt });
+
+            modelBuilder.Entity<CryptoOptionBacktestRun>()
+                .HasOne(r => r.StrategyConfig)
+                .WithMany()
+                .HasForeignKey(r => r.StrategyConfigId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<CryptoOptionBacktestPosition>()
+                .HasOne(p => p.BacktestRun)
+                .WithMany(r => r.Positions)
+                .HasForeignKey(p => p.BacktestRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CryptoOptionBacktestLeg>()
+                .HasOne(l => l.BacktestPosition)
+                .WithMany(p => p.Legs)
+                .HasForeignKey(l => l.BacktestPositionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CryptoOptionBacktestLegEvent>()
+                .HasOne(e => e.BacktestLeg)
+                .WithMany(l => l.Events)
+                .HasForeignKey(e => e.BacktestLegId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CryptoOptionDailyPnl>()
+                .HasOne(p => p.BacktestRun)
+                .WithMany(r => r.DailyPnls)
+                .HasForeignKey(p => p.BacktestRunId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CryptoOptionScannerResult>()
+                .HasIndex(r => new { r.UserId, r.Exchange, r.Symbol, r.ScanTime });
             modelBuilder.Entity<UserStrategy>()
                 .HasOne(us => us.Mt5Account)
                 .WithMany()
@@ -84,3 +145,5 @@ namespace TradeSphere.Infrastructure.Persistence
         }
     }
 }
+
+

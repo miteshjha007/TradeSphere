@@ -23,6 +23,7 @@ namespace TradeSphere.Application.DTOs
         public string? ErrorReason { get; set; }
         public string? BrokerTicket { get; set; }
         public string ActivityType { get; set; }
+        public bool CanResumeAutoRisk { get; set; }
     }
 
     public class PositionDto
@@ -44,5 +45,6 @@ namespace TradeSphere.Application.DTOs
     {
         public List<TradeDto> Trades { get; set; }
         public List<PositionDto> Positions { get; set; }
+        public decimal RealizedPnl { get; set; }
     }
 }

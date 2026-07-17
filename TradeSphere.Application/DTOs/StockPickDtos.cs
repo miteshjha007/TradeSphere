@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace TradeSphere.Application.DTOs
@@ -35,4 +35,36 @@ namespace TradeSphere.Application.DTOs
         public string Target2 { get; set; } = string.Empty;
         public List<string> Reasons { get; set; } = new();
     }
+    public class StockAnalysisRequestDto
+    {
+        public string Symbol { get; set; } = string.Empty;
+        public string Horizon { get; set; } = "ShortTerm";
+    }
+
+    public class StockAnalysisDto
+    {
+        public DateTime LastUpdatedAt { get; set; }
+        public string Symbol { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Horizon { get; set; } = string.Empty;
+        public string Verdict { get; set; } = string.Empty;
+        public string Recommendation { get; set; } = string.Empty;
+        public string Risk { get; set; } = string.Empty;
+        public decimal LastPrice { get; set; }
+        public decimal TechnicalScore { get; set; }
+        public decimal FundamentalScore { get; set; }
+        public decimal OverallScore { get; set; }
+        public decimal Change1DPercent { get; set; }
+        public decimal Change5DPercent { get; set; }
+        public decimal Change20DPercent { get; set; }
+        public decimal VolatilityPercent { get; set; }
+        public string EntryZone { get; set; } = string.Empty;
+        public string StopLoss { get; set; } = string.Empty;
+        public string Target1 { get; set; } = string.Empty;
+        public string Target2 { get; set; } = string.Empty;
+        public List<string> TechnicalSignals { get; set; } = new();
+        public List<string> FundamentalSignals { get; set; } = new();
+        public List<string> Warnings { get; set; } = new();
+    }
 }
+

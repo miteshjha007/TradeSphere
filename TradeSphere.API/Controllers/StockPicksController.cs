@@ -1,6 +1,7 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TradeSphere.Application.Common.Interfaces;
+using TradeSphere.Application.DTOs;
 
 namespace TradeSphere.API.Controllers
 {
@@ -27,5 +28,12 @@ namespace TradeSphere.API.Controllers
         {
             return Ok(await _stockPickService.GetLongTermPicksAsync(cancellationToken));
         }
+        [HttpPost("analyze")]
+        public async Task<IActionResult> AnalyzeStock([FromBody] StockAnalysisRequestDto request, CancellationToken cancellationToken)
+        {
+            return Ok(await _stockPickService.AnalyzeStockAsync(request, cancellationToken));
+        }
     }
 }
+
+

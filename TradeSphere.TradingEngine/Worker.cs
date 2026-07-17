@@ -1,7 +1,8 @@
-using Microsoft.Extensions.Hosting;
+﻿using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
@@ -18,6 +19,7 @@ namespace TradeSphere.TradingEngine
 {
     public class TradingWorker : BackgroundService
     {
+        private static readonly ConcurrentDictionary<string, DateTime> EntryReservations = new();
         private readonly ILogger<TradingWorker> _logger;
         private readonly IServiceProvider _serviceProvider;
 
@@ -476,7 +478,7 @@ namespace TradeSphere.TradingEngine
 
                             continue;
                         }
-                        else if (strategy.Strategy.LogicType == "FIB-55-EMA")
+                        else if (strategy.Strategy.LogicType == "FIB-55-EMA" || strategy.Strategy.LogicType == "FIB-55-EMA-V4")
                         {
                             await ProcessFib55EmaStrategyAsync(
                                 context,
@@ -502,7 +504,7 @@ namespace TradeSphere.TradingEngine
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, $"Error placing trade on Delta Exchange for strategy {strategy.Id} ({strategy.Symbol})");
+                        _logger.LogError(ex, $"Error processing strategy {strategy.Id} ({strategy.Symbol}) on {strategy.ExecutionProvider}");
                         if (pendingTrade != null)
                         {
                             var friendlyError = NormalizeOrderError(ex.Message);
@@ -761,6 +763,10 @@ namespace TradeSphere.TradingEngine
             var tpPrice = 0m;
             if (currentPosition == 0)
             {
+                if (await ShouldBlockMt5EntryAsync(context, mt5BridgeClient, strategy, brokerSymbol, password, cancellationToken))
+                {
+                    return;
+                }
                 if (dailyBias == 1 && crossAboveUpper && isInSession && !isPastSquareOff)
                 {
                     slPrice = config.useATRSL ? currentPrice - (config.atrMultiplier * atr) : emaLow;
@@ -869,7 +875,7 @@ namespace TradeSphere.TradingEngine
                 return;
             }
 
-            var signal = BuildFib55Signal(candles, htfCandles, config);
+            var signal = BuildFib55Signal(candles, htfCandles, config, strategy.Strategy.LogicType);
             if (signal == null)
             {
                 _logger.LogInformation("Fib signal check {Symbol} {Resolution}: no completed candle ready for evaluation.", strategy.Symbol, config.resolution);
@@ -976,11 +982,53 @@ namespace TradeSphere.TradingEngine
                     return;
                 }
 
+                string? entryReservationKey = null;
+                if (isMt5)
+                {
+                    entryReservationKey = BuildEntryReservationKey(strategy, brokerSymbol);
+                    if (!TryReserveEntry(entryReservationKey))
+                    {
+                        await UpsertStrategyHealthAsync(
+                            context,
+                            strategy,
+                            config.resolution,
+                            currentPrice,
+                            currentPosition,
+                            false,
+                            null,
+                            "Entry blocked",
+                            "A trade entry is already being processed for this strategy/account/symbol. Waiting for the broker position to settle.",
+                            BuildFibSignalDetailsJson(signal, config),
+                            cancellationToken);
+                        return;
+                    }
+
+                    if (await HasOpenMt5PositionForSymbolAsync(mt5BridgeClient, strategy.Mt5Account!, mt5Password!, brokerSymbol, cancellationToken))
+                    {
+                        ReleaseEntryReservation(entryReservationKey);
+                        await UpsertStrategyHealthAsync(
+                            context,
+                            strategy,
+                            config.resolution,
+                            currentPrice,
+                            currentPosition,
+                            false,
+                            null,
+                            "Entry blocked",
+                            "An MT5 position is already open for this strategy template, account, and symbol. One strategy can hold only one live trade at a time.",
+                            BuildFibSignalDetailsJson(signal, config),
+                            cancellationToken);
+                        return;
+                    }
+                }
+
                 var side = signal.Buy ? "Buy" : "Sell";
                 var positionText = signal.Buy ? "Long" : "Short";
-                var sl = signal.Buy
-                    ? currentPrice - currentPrice * config.stopLossPct
-                    : currentPrice + currentPrice * config.stopLossPct;
+                var sl = signal.SuggestedStopLoss > 0m
+                    ? signal.SuggestedStopLoss
+                    : signal.Buy
+                        ? currentPrice - currentPrice * config.stopLossPct
+                        : currentPrice + currentPrice * config.stopLossPct;
                 var risk = Math.Abs(currentPrice - sl);
                 if (risk <= 0m)
                 {
@@ -1403,6 +1451,20 @@ namespace TradeSphere.TradingEngine
             }
 
             var currentStopLoss = position.Sl > 0m ? position.Sl : initialStopLoss;
+            var latestRiskAdjustment = await GetLatestMt5RiskAdjustmentAsync(context, strategy.Id, strategy.Symbol, position.Ticket, entryTrade.CreatedAt, cancellationToken);
+            var (lastAutomatedStopLoss, _) = ParseRiskLevels(latestRiskAdjustment?.ExternalOrderId);
+            if (lastAutomatedStopLoss <= 0m)
+            {
+                lastAutomatedStopLoss = initialStopLoss;
+            }
+
+            var stopLossTolerance = Math.Max(0.01m, risk * 0.005m);
+            if (IsManualStopLossOverride(position.Sl, lastAutomatedStopLoss, stopLossTolerance))
+            {
+                await LogMt5ManualStopLossOverrideAsync(context, strategy, entryTrade, position, cancellationToken);
+                return;
+            }
+
             decimal? candidateStopLoss = null;
             var reasons = new List<string>();
 
@@ -1465,7 +1527,7 @@ namespace TradeSphere.TradingEngine
                 Comment = $"TradeSphere risk {string.Join("+", reasons.Distinct())}"
             }, cancellationToken);
 
-            var trade = CreateTradeAttempt(strategy, entryTrade.Side, position.Price_Current, position.Volume, $"MT5-Risk|Reason:{string.Join("+", reasons.Distinct())}|SL:{candidateStopLoss.Value:F2}|MT5:{position.Ticket}");
+            var trade = CreateTradeAttempt(strategy, entryTrade.Side, position.Price_Current, position.Volume, $"MT5-Risk|Reason:{string.Join("+", reasons.Distinct())}|SL:{FormatPrice(candidateStopLoss.Value)}|MT5:{position.Ticket}");
             trade.OrderType = "Modify SL";
             trade.ExecutedAt = DateTime.UtcNow;
             trade.BrokerResponse = result.RawResponse ?? result.Message;
@@ -1477,6 +1539,145 @@ namespace TradeSphere.TradingEngine
 
             context.Trades.Add(trade);
             await context.SaveChangesAsync(cancellationToken);
+        }
+
+        private static async Task<Trade?> GetLatestMt5RiskAdjustmentAsync(
+            ApplicationDbContext context,
+            int userStrategyId,
+            string symbol,
+            long positionTicket,
+            DateTime entryCreatedAt,
+            CancellationToken cancellationToken)
+        {
+            return await context.Trades
+                .Where(t =>
+                    t.UserStrategyId == userStrategyId &&
+                    t.CreatedAt >= entryCreatedAt &&
+                    t.Status == "Modified" &&
+                    t.Symbol == symbol &&
+                    t.ExternalOrderId != null &&
+                    t.ExternalOrderId.StartsWith("MT5-Risk") &&
+                    t.ExternalOrderId.Contains($"MT5:{positionTicket}"))
+                .OrderByDescending(t => t.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        private static bool IsManualStopLossOverride(decimal brokerStopLoss, decimal lastAutomatedStopLoss, decimal tolerance)
+        {
+            if (brokerStopLoss <= 0m || lastAutomatedStopLoss <= 0m)
+            {
+                return false;
+            }
+
+            return Math.Abs(brokerStopLoss - lastAutomatedStopLoss) > tolerance;
+        }
+
+        private static async Task LogMt5ManualStopLossOverrideAsync(
+            ApplicationDbContext context,
+            UserStrategy strategy,
+            Trade entryTrade,
+            Mt5BridgePositionDto position,
+            CancellationToken cancellationToken)
+        {
+            var exists = await context.Trades.AnyAsync(t =>
+                t.UserStrategyId == strategy.Id &&
+                t.Symbol == entryTrade.Symbol &&
+                t.Status == "Manual Override" &&
+                t.ExternalOrderId != null &&
+                t.ExternalOrderId.Contains($"MT5:{position.Ticket}"),
+                cancellationToken);
+
+            if (exists)
+            {
+                return;
+            }
+
+            var trade = CreateTradeAttempt(strategy, entryTrade.Side, position.Price_Current, position.Volume, $"MT5-ManualRiskOverride|SL:{FormatPrice(position.Sl)}|MT5:{position.Ticket}");
+            trade.OrderType = "Manual SL Override";
+            trade.Status = "Manual Override";
+            trade.ExecutedAt = DateTime.UtcNow;
+            trade.ErrorReason = $"Manual SL override detected at {FormatPrice(position.Sl)}. Auto breakeven/trailing is paused for this MT5 ticket.";
+            trade.BrokerResponse = "Broker SL no longer matches the last TradeSphere-managed SL.";
+            trade.UpdatedAt = DateTime.UtcNow;
+
+            context.Trades.Add(trade);
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        private async Task<bool> ShouldBlockMt5EntryAsync(
+            ApplicationDbContext context,
+            IMt5BridgeClient mt5BridgeClient,
+            UserStrategy strategy,
+            string brokerSymbol,
+            string password,
+            CancellationToken cancellationToken)
+        {
+            if (strategy.Mt5Account == null)
+            {
+                return true;
+            }
+
+            var reservationKey = BuildEntryReservationKey(strategy, brokerSymbol);
+            if (!TryReserveEntry(reservationKey))
+            {
+                return true;
+            }
+
+            if (await HasOpenMt5PositionForSymbolAsync(mt5BridgeClient, strategy.Mt5Account, password, brokerSymbol, cancellationToken))
+            {
+                ReleaseEntryReservation(reservationKey);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static string BuildEntryReservationKey(UserStrategy strategy, string brokerSymbol)
+        {
+            var provider = string.IsNullOrWhiteSpace(strategy.ExecutionProvider) ? "Exchange" : strategy.ExecutionProvider.Trim();
+            var accountKey = provider.Equals("MT5", StringComparison.OrdinalIgnoreCase)
+                ? "MT5:" + strategy.Mt5AccountId
+                : "EX:" + (strategy.UserExchangeId ?? strategy.ExchangeId);
+            var symbolKey = (brokerSymbol ?? strategy.Symbol ?? string.Empty).Trim().ToUpperInvariant();
+            return string.Join(":", strategy.UserId, provider.ToUpperInvariant(), accountKey, strategy.StrategyId, symbolKey);
+        }
+
+        private static bool TryReserveEntry(string key)
+        {
+            var now = DateTime.UtcNow;
+            foreach (var expired in EntryReservations.Where(item => item.Value <= now).ToArray())
+            {
+                EntryReservations.TryRemove(expired.Key, out _);
+            }
+
+            return EntryReservations.TryAdd(key, now.AddSeconds(90));
+        }
+
+        private static void ReleaseEntryReservation(string key)
+        {
+            EntryReservations.TryRemove(key, out _);
+        }
+
+        private static async Task<bool> HasOpenMt5PositionForSymbolAsync(
+            IMt5BridgeClient mt5BridgeClient,
+            Mt5Account account,
+            string password,
+            string brokerSymbol,
+            CancellationToken cancellationToken)
+        {
+            var result = await mt5BridgeClient.GetPositionsAsync(new Mt5BridgePositionsRequestDto
+            {
+                Login = account.Login,
+                Server = account.Server,
+                Password = password,
+                Symbol = null
+            }, cancellationToken);
+
+            if (!result.Success)
+            {
+                throw new Exception("MT5 positions failed for " + brokerSymbol + ": " + result.Message);
+            }
+
+            return result.Positions.Any(p => string.Equals(p.Symbol, brokerSymbol, StringComparison.OrdinalIgnoreCase));
         }
 
         private static async Task<Mt5BridgePositionDto?> FindOpenMt5PositionAsync(
@@ -1563,10 +1764,17 @@ namespace TradeSphere.TradingEngine
             };
         }
 
-        private static Fib55Signal? BuildFib55Signal(List<CandleDto> candles, List<CandleDto> htfCandles, Fib55EmaConfig config)
+        private static Fib55Signal? BuildFib55Signal(List<CandleDto> candles, List<CandleDto> htfCandles, Fib55EmaConfig config, string? logicType = null)
         {
             var i = candles.Count - 2; // Last completed candle; last item can still be forming.
-            if (i < Math.Max(config.emaLength + 2, 20))
+            if (string.Equals(logicType, "FIB-55-EMA-V4", StringComparison.OrdinalIgnoreCase))
+            {
+                return BuildFib55V4Signal(candles, htfCandles, config);
+            }
+
+            var isV3 = false;
+            var minHistory = Math.Max(config.emaLength + 2, Math.Max(20, config.bosLookback + 2));
+            if (i < minHistory)
             {
                 return null;
             }
@@ -1576,11 +1784,12 @@ namespace TradeSphere.TradingEngine
             var ema = CalculateEMAList(closes, config.emaLength);
             var htfEma = CalculateEMAList(htfCloses, config.emaLength);
             var rsi = CalculateRSIList(closes, 14);
+            var atr = CalculateATRList(candles, config.atrLength);
 
             var candle = candles[i];
             var previous = candles[i - 1];
             var htfIndex = FindLastCandleIndex(htfCandles, candle.Time);
-            if (htfIndex < config.emaLength || htfIndex < 0)
+            if (htfIndex < 0 || htfIndex < config.emaLength)
             {
                 return null;
             }
@@ -1603,6 +1812,29 @@ namespace TradeSphere.TradingEngine
             var body = Math.Abs(candle.Close - candle.Open);
             var strongCandle = range > 0m && body / range * 100m >= config.minBodyPct;
 
+            var lastSwingHigh = FindLastConfirmedSwingHigh(candles, i, config.swingLength);
+            var lastSwingLow = FindLastConfirmedSwingLow(candles, i, config.swingLength);
+            var sellSweep = lastSwingHigh.HasValue && candle.High > lastSwingHigh.Value && candle.Close < lastSwingHigh.Value;
+            var buySweep = lastSwingLow.HasValue && candle.Low < lastSwingLow.Value && candle.Close > lastSwingLow.Value;
+            var recentLow = candles.Skip(Math.Max(0, i - config.bosLookback)).Take(config.bosLookback).Min(c => c.Low);
+            var recentHigh = candles.Skip(Math.Max(0, i - config.bosLookback)).Take(config.bosLookback).Max(c => c.High);
+            var bearBos = candle.Close < recentLow;
+            var bullBos = candle.Close > recentHigh;
+
+            var nearSellFib = isV3
+                ? IsNearWick(candle, s618, config.zoneBuffer) || IsNearWick(candle, s500, config.zoneBuffer) || IsNearWick(candle, s382, config.zoneBuffer)
+                : IsNear(candle.Close, s618, config.zoneBuffer) || IsNear(candle.Close, s500, config.zoneBuffer) || IsNear(candle.Close, s382, config.zoneBuffer);
+            var nearBuyFib = isV3
+                ? IsNearWick(candle, b618, config.zoneBuffer) || IsNearWick(candle, b500, config.zoneBuffer) || IsNearWick(candle, b382, config.zoneBuffer)
+                : IsNear(candle.Close, b618, config.zoneBuffer) || IsNear(candle.Close, b500, config.zoneBuffer) || IsNear(candle.Close, b382, config.zoneBuffer);
+
+            var bounce = isV3
+                ? candle.Close > candle.Open && candle.Low < previous.Low && candle.Close > previous.Close && strongCandle
+                : candle.Close > candle.Open && previous.Close < previous.Open && strongCandle;
+            var rejection = isV3
+                ? candle.Close < candle.Open && candle.High > previous.High && candle.Close < previous.Close && strongCandle
+                : candle.Close < candle.Open && previous.Close > previous.Open && strongCandle;
+
             var signal = new Fib55Signal
             {
                 CurrentPrice = candle.Close,
@@ -1610,22 +1842,439 @@ namespace TradeSphere.TradingEngine
                 HtfBear = htfCandles[htfIndex].Close < htfEma[htfIndex],
                 LtfBull = candle.Close > ema[i],
                 LtfBear = candle.Close < ema[i],
-                NearSellFib = IsNear(candle.Close, s618, config.zoneBuffer) || IsNear(candle.Close, s500, config.zoneBuffer) || IsNear(candle.Close, s382, config.zoneBuffer),
-                NearBuyFib = IsNear(candle.Close, b618, config.zoneBuffer) || IsNear(candle.Close, b500, config.zoneBuffer) || IsNear(candle.Close, b382, config.zoneBuffer),
-                Bounce = candle.Close > candle.Open && previous.Close < previous.Open && strongCandle,
-                Rejection = candle.Close < candle.Open && previous.Close > previous.Open && strongCandle,
+                NearSellFib = nearSellFib,
+                NearBuyFib = nearBuyFib,
+                Bounce = bounce,
+                Rejection = rejection,
                 Rsi = rsi[i],
                 HourlyGreen = hourly.Close >= hourly.Open,
-                HourlyRed = hourly.Close < hourly.Open
+                HourlyRed = hourly.Close < hourly.Open,
+                BuySweep = buySweep,
+                SellSweep = sellSweep,
+                BullBos = bullBos,
+                BearBos = bearBos
             };
 
             var rsiBuy = signal.Rsi >= config.rsiBuyMin && signal.Rsi < 70m;
             var rsiSell = signal.Rsi <= config.rsiSellMax && signal.Rsi > 30m;
-            signal.Buy = signal.HtfBull && signal.LtfBull && signal.HourlyGreen && signal.NearBuyFib && signal.Bounce && rsiBuy;
-            signal.Sell = signal.HtfBear && signal.LtfBear && signal.HourlyRed && signal.NearSellFib && signal.Rejection && rsiSell;
+            var buyStructureOk = !isV3
+                || (!config.requireLiquiditySweep || buySweep) && (!config.requireBosConfirmation || bullBos);
+            var sellStructureOk = !isV3
+                || (!config.requireLiquiditySweep || sellSweep) && (!config.requireBosConfirmation || bearBos);
+
+            if (IsRetestEntryMode(config))
+            {
+                ApplyFib55RetestEntry(candles, htfCandles, ema, htfEma, rsi, atr, i, config, signal);
+            }
+            else
+            {
+                signal.Buy = signal.HtfBull && signal.LtfBull && signal.HourlyGreen && signal.NearBuyFib && signal.Bounce && rsiBuy && buyStructureOk;
+                signal.Sell = signal.HtfBear && signal.LtfBear && signal.HourlyRed && signal.NearSellFib && signal.Rejection && rsiSell && sellStructureOk;
+            }
+
+            if (isV3 && signal.Buy && lastSwingLow.HasValue)
+            {
+                signal.SuggestedStopLoss = lastSwingLow.Value - atr[i] * config.atrBuffer;
+            }
+            else if (isV3 && signal.Sell && lastSwingHigh.HasValue)
+            {
+                signal.SuggestedStopLoss = lastSwingHigh.Value + atr[i] * config.atrBuffer;
+            }
+
             return signal;
         }
 
+        
+        private static bool IsRetestEntryMode(Fib55EmaConfig config)
+        {
+            return string.Equals(config.entryMode, "Retest", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(config.entryMode, "PullbackRetest", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void ApplyFib55RetestEntry(
+            List<CandleDto> candles,
+            List<CandleDto> htfCandles,
+            List<decimal> ema,
+            List<decimal> htfEma,
+            List<decimal> rsi,
+            List<decimal> atr,
+            int currentIndex,
+            Fib55EmaConfig config,
+            Fib55Signal signal)
+        {
+            var candle = candles[currentIndex];
+            var htfIndex = FindLastCandleIndex(htfCandles, candle.Time);
+            if (htfIndex < 0 || htfIndex < config.emaLength)
+            {
+                return;
+            }
+
+            var hourly = htfCandles[htfIndex];
+            var fibRange = hourly.High - hourly.Low;
+            if (fibRange <= 0m)
+            {
+                return;
+            }
+
+            var buyFib618 = hourly.Low + fibRange * config.fib618;
+            var buyFib500 = hourly.Low + fibRange * config.fib500;
+            var sellFib618 = hourly.High - fibRange * config.fib618;
+            var sellFib500 = hourly.High - fibRange * config.fib500;
+            var buffer = Math.Max(atr[currentIndex] * config.retestBufferAtr, candle.Close * config.zoneBuffer);
+
+            var buyZoneLow = Math.Min(buyFib500, buyFib618) - buffer;
+            var buyZoneHigh = Math.Max(buyFib500, buyFib618) + buffer;
+            var sellZoneLow = Math.Min(sellFib500, sellFib618) - buffer;
+            var sellZoneHigh = Math.Max(sellFib500, sellFib618) + buffer;
+
+            var lowerWick = Math.Min(candle.Open, candle.Close) - candle.Low;
+            var upperWick = candle.High - Math.Max(candle.Open, candle.Close);
+            var body = Math.Abs(candle.Close - candle.Open);
+            var range = candle.High - candle.Low;
+            var strongEnough = range > 0m && body / range * 100m >= Math.Max(10m, config.minBodyPct * 0.5m);
+
+            var touchedBuyZone = candle.Low <= buyZoneHigh && candle.High >= buyZoneLow;
+            var touchedSellZone = candle.High >= sellZoneLow && candle.Low <= sellZoneHigh;
+            var buyConfirmation = !config.requireRetestConfirmation
+                || candle.Close > candle.Open && candle.Close >= buyZoneLow && lowerWick >= body * 0.35m && strongEnough;
+            var sellConfirmation = !config.requireRetestConfirmation
+                || candle.Close < candle.Open && candle.Close <= sellZoneHigh && upperWick >= body * 0.35m && strongEnough;
+
+            var recentBuySetup = HasRecentFibSetup(candles, htfCandles, ema, htfEma, rsi, currentIndex, config, bullish: true);
+            var recentSellSetup = HasRecentFibSetup(candles, htfCandles, ema, htfEma, rsi, currentIndex, config, bullish: false);
+
+            signal.NearBuyFib = touchedBuyZone;
+            signal.NearSellFib = touchedSellZone;
+            signal.Bounce = touchedBuyZone && buyConfirmation;
+            signal.Rejection = touchedSellZone && sellConfirmation;
+            signal.Buy = recentBuySetup
+                && signal.HtfBull
+                && signal.LtfBull
+                && signal.HourlyGreen
+                && signal.Rsi >= config.rsiBuyMin
+                && signal.Rsi < 70m
+                && signal.Bounce;
+            signal.Sell = recentSellSetup
+                && signal.HtfBear
+                && signal.LtfBear
+                && signal.HourlyRed
+                && signal.Rsi <= config.rsiSellMax
+                && signal.Rsi > 30m
+                && signal.Rejection;
+
+            var slLookback = Math.Max(3, Math.Min(config.retestLookbackBars, currentIndex));
+            var recentCandles = candles.Skip(currentIndex - slLookback + 1).Take(slLookback).ToList();
+            if (signal.Buy)
+            {
+                signal.SuggestedStopLoss = recentCandles.Min(c => c.Low) - atr[currentIndex] * config.atrBuffer;
+            }
+            else if (signal.Sell)
+            {
+                signal.SuggestedStopLoss = recentCandles.Max(c => c.High) + atr[currentIndex] * config.atrBuffer;
+            }
+        }
+
+        private static bool HasRecentFibSetup(
+            List<CandleDto> candles,
+            List<CandleDto> htfCandles,
+            List<decimal> ema,
+            List<decimal> htfEma,
+            List<decimal> rsi,
+            int currentIndex,
+            Fib55EmaConfig config,
+            bool bullish)
+        {
+            var lookback = Math.Max(3, config.retestLookbackBars);
+            var start = Math.Max(config.emaLength + 1, currentIndex - lookback);
+            for (var j = start; j < currentIndex; j++)
+            {
+                var c = candles[j];
+                var htfIndex = FindLastCandleIndex(htfCandles, c.Time);
+                if (htfIndex < 0 || htfIndex < config.emaLength)
+                {
+                    continue;
+                }
+
+                var hourly = htfCandles[htfIndex];
+                var fibRange = hourly.High - hourly.Low;
+                if (fibRange <= 0m)
+                {
+                    continue;
+                }
+
+                if (bullish)
+                {
+                    var fib618 = hourly.Low + fibRange * config.fib618;
+                    var fib500 = hourly.Low + fibRange * config.fib500;
+                    var brokeAwayFromZone = c.Close > Math.Max(fib500, fib618);
+                    var trendOk = hourly.Close >= hourly.Open && hourly.Close > htfEma[htfIndex] && c.Close > ema[j];
+                    var momentumOk = c.Close > c.Open && rsi[j] >= config.rsiBuyMin && rsi[j] < 75m;
+                    if (trendOk && brokeAwayFromZone && momentumOk)
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    var fib618 = hourly.High - fibRange * config.fib618;
+                    var fib500 = hourly.High - fibRange * config.fib500;
+                    var brokeAwayFromZone = c.Close < Math.Min(fib500, fib618);
+                    var trendOk = hourly.Close < hourly.Open && hourly.Close < htfEma[htfIndex] && c.Close < ema[j];
+                    var momentumOk = c.Close < c.Open && rsi[j] <= config.rsiSellMax && rsi[j] > 25m;
+                    if (trendOk && brokeAwayFromZone && momentumOk)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+        private static Fib55Signal? BuildFib55V4Signal(List<CandleDto> candles, List<CandleDto> htfCandles, Fib55EmaConfig config)
+        {
+            var currentIndex = candles.Count - 2;
+            var minHistory = Math.Max(Math.Max(config.emaLength + 2, config.atrLength + 2), config.swingLength * 2 + 2);
+            if (currentIndex < minHistory)
+            {
+                return null;
+            }
+
+            var closes = candles.Select(c => c.Close).ToList();
+            var htfCloses = htfCandles.Select(c => c.Close).ToList();
+            var ema = CalculateEMAList(closes, config.emaLength);
+            var htfEma = CalculateEMAList(htfCloses, config.emaLength);
+            var rsi = CalculateRSIList(closes, 14);
+            var atr = CalculateATRList(candles, config.atrLength);
+
+            int sellState = 0;
+            int buyState = 0;
+            int sellStartBar = 0;
+            int buyStartBar = 0;
+            decimal? lastSwingHigh = null;
+            decimal? lastSwingLow = null;
+            decimal? sellSweepHigh = null;
+            decimal? buySweepLow = null;
+            decimal? sellBosLevel = null;
+            decimal? buyBosLevel = null;
+            decimal? sellEntryZone = null;
+            decimal? buyEntryZone = null;
+            Fib55Signal? latestSignal = null;
+
+            for (var i = minHistory; i <= currentIndex; i++)
+            {
+                var candle = candles[i];
+                var pivotIndex = i - config.swingLength;
+                if (pivotIndex >= config.swingLength)
+                {
+                    if (IsPivotHigh(candles, pivotIndex, config.swingLength)) lastSwingHigh = candles[pivotIndex].High;
+                    if (IsPivotLow(candles, pivotIndex, config.swingLength)) lastSwingLow = candles[pivotIndex].Low;
+                }
+
+                var htfIndex = FindLastCandleIndex(htfCandles, candle.Time);
+                if (htfIndex < 0 || htfIndex < config.emaLength)
+                {
+                    continue;
+                }
+
+                var hourly = htfCandles[htfIndex];
+                var fibRange = hourly.High - hourly.Low;
+                if (fibRange <= 0m)
+                {
+                    continue;
+                }
+
+                var s618 = hourly.High - fibRange * config.fib618;
+                var s500 = hourly.High - fibRange * config.fib500;
+                var s382 = hourly.High - fibRange * config.fib381;
+                var b618 = hourly.Low + fibRange * config.fib618;
+                var b500 = hourly.Low + fibRange * config.fib500;
+                var b382 = hourly.Low + fibRange * config.fib381;
+
+                var body = Math.Abs(candle.Close - candle.Open);
+                var range = candle.High - candle.Low;
+                var upperWick = candle.High - Math.Max(candle.Open, candle.Close);
+                var lowerWick = Math.Min(candle.Open, candle.Close) - candle.Low;
+                var strongCandle = range > 0m && body / range * 100m >= config.minBodyPct;
+                var htfBull = htfCandles[htfIndex].Close > htfEma[htfIndex];
+                var htfBear = htfCandles[htfIndex].Close < htfEma[htfIndex];
+                var ltfBull = candle.Close > ema[i];
+                var ltfBear = candle.Close < ema[i];
+                var emaAcceptBull = HasEmaAcceptance(candles, ema, i, config.emaAcceptanceBars, bullish: true);
+                var emaAcceptBear = HasEmaAcceptance(candles, ema, i, config.emaAcceptanceBars, bullish: false);
+                var hourGreen = hourly.Close >= hourly.Open;
+                var hourRed = hourly.Close < hourly.Open;
+                var nearSellFib = IsNearWick(candle, s618, config.zoneBuffer) || IsNearWick(candle, s500, config.zoneBuffer) || IsNearWick(candle, s382, config.zoneBuffer);
+                var nearBuyFib = IsNearWick(candle, b618, config.zoneBuffer) || IsNearWick(candle, b500, config.zoneBuffer) || IsNearWick(candle, b382, config.zoneBuffer);
+                var rsiBuy = rsi[i] >= config.rsiBuyMin && rsi[i] < 70m;
+                var rsiSell = rsi[i] <= config.rsiSellMax && rsi[i] > 30m;
+                var sellSweep = lastSwingHigh.HasValue && candle.High > lastSwingHigh.Value && candle.Close < lastSwingHigh.Value && upperWick > body * 0.5m;
+                var buySweep = lastSwingLow.HasValue && candle.Low < lastSwingLow.Value && candle.Close > lastSwingLow.Value && lowerWick > body * 0.5m;
+
+                if (sellState > 0 && i - sellStartBar > config.maxWaitBars) sellState = 0;
+                if (buyState > 0 && i - buyStartBar > config.maxWaitBars) buyState = 0;
+
+                if (sellState == 0 && htfBear && ltfBear && emaAcceptBear && hourRed && nearSellFib && rsiSell)
+                {
+                    sellState = 1;
+                    sellStartBar = i;
+                }
+
+                if (sellState == 1 && sellSweep)
+                {
+                    sellState = 2;
+                    sellSweepHigh = candle.High;
+                    sellBosLevel = lastSwingLow;
+                }
+
+                var bearBos = sellState == 2 && sellBosLevel.HasValue && candle.Close < sellBosLevel.Value && strongCandle;
+                if (bearBos)
+                {
+                    sellState = 3;
+                    sellEntryZone = sellBosLevel;
+                }
+
+                var sellRetest = sellState == 3 && sellEntryZone.HasValue && candle.High >= sellEntryZone.Value - atr[i] * config.retestBufferAtr && candle.Close < sellEntryZone.Value && candle.Close < candle.Open;
+
+                if (buyState == 0 && htfBull && ltfBull && emaAcceptBull && hourGreen && nearBuyFib && rsiBuy)
+                {
+                    buyState = 1;
+                    buyStartBar = i;
+                }
+
+                if (buyState == 1 && buySweep)
+                {
+                    buyState = 2;
+                    buySweepLow = candle.Low;
+                    buyBosLevel = lastSwingHigh;
+                }
+
+                var bullBos = buyState == 2 && buyBosLevel.HasValue && candle.Close > buyBosLevel.Value && strongCandle;
+                if (bullBos)
+                {
+                    buyState = 3;
+                    buyEntryZone = buyBosLevel;
+                }
+
+                var buyRetest = buyState == 3 && buyEntryZone.HasValue && candle.Low <= buyEntryZone.Value + atr[i] * config.retestBufferAtr && candle.Close > buyEntryZone.Value && candle.Close > candle.Open;
+
+                latestSignal = new Fib55Signal
+                {
+                    CurrentPrice = candle.Close,
+                    HtfBull = htfBull,
+                    HtfBear = htfBear,
+                    LtfBull = ltfBull,
+                    LtfBear = ltfBear,
+                    HourlyGreen = hourGreen,
+                    HourlyRed = hourRed,
+                    NearSellFib = nearSellFib,
+                    NearBuyFib = nearBuyFib,
+                    Bounce = buyRetest,
+                    Rejection = sellRetest,
+                    Rsi = rsi[i],
+                    BuySweep = buySweep,
+                    SellSweep = sellSweep,
+                    BullBos = bullBos,
+                    BearBos = bearBos,
+                    Buy = i == currentIndex && buyRetest,
+                    Sell = i == currentIndex && sellRetest
+                };
+
+                if (latestSignal.Buy && buySweepLow.HasValue)
+                {
+                    latestSignal.SuggestedStopLoss = buySweepLow.Value - atr[i] * config.atrBuffer;
+                }
+                else if (latestSignal.Sell && sellSweepHigh.HasValue)
+                {
+                    latestSignal.SuggestedStopLoss = sellSweepHigh.Value + atr[i] * config.atrBuffer;
+                }
+
+                if (buyRetest) buyState = 0;
+                if (sellRetest) sellState = 0;
+            }
+
+            return latestSignal;
+        }
+
+        private static bool HasEmaAcceptance(List<CandleDto> candles, List<decimal> ema, int index, int bars, bool bullish)
+        {
+            for (var offset = 0; offset < bars; offset++)
+            {
+                var i = index - offset;
+                if (i < 0) return false;
+                if (bullish && candles[i].Close < ema[i]) return false;
+                if (!bullish && candles[i].Close > ema[i]) return false;
+            }
+
+            return true;
+        }
+        private static bool IsPivotHigh(List<CandleDto> candles, int index, int length)
+        {
+            if (index < length || index + length >= candles.Count) return false;
+            var value = candles[index].High;
+            for (var i = index - length; i <= index + length; i++)
+            {
+                if (i != index && candles[i].High >= value) return false;
+            }
+            return true;
+        }
+
+        private static bool IsPivotLow(List<CandleDto> candles, int index, int length)
+        {
+            if (index < length || index + length >= candles.Count) return false;
+            var value = candles[index].Low;
+            for (var i = index - length; i <= index + length; i++)
+            {
+                if (i != index && candles[i].Low <= value) return false;
+            }
+            return true;
+        }
+        private static decimal? FindLastConfirmedSwingHigh(List<CandleDto> candles, int index, int length)
+        {
+            for (var pivot = index - length; pivot >= length; pivot--)
+            {
+                var value = candles[pivot].High;
+                var valid = true;
+                for (var i = pivot - length; i <= pivot + length; i++)
+                {
+                    if (i != pivot && candles[i].High >= value)
+                    {
+                        valid = false;
+                        break;
+                    }
+                }
+
+                if (valid) return value;
+            }
+
+            return null;
+        }
+
+        private static decimal? FindLastConfirmedSwingLow(List<CandleDto> candles, int index, int length)
+        {
+            for (var pivot = index - length; pivot >= length; pivot--)
+            {
+                var value = candles[pivot].Low;
+                var valid = true;
+                for (var i = pivot - length; i <= pivot + length; i++)
+                {
+                    if (i != pivot && candles[i].Low <= value)
+                    {
+                        valid = false;
+                        break;
+                    }
+                }
+
+                if (valid) return value;
+            }
+
+            return null;
+        }
+
+        private static bool IsNearWick(CandleDto candle, decimal level, decimal buffer)
+        {
+            if (level <= 0m) return false;
+            return candle.High >= level * (1m - buffer) && candle.Low <= level * (1m + buffer);
+        }
         private static int GetPositionFromTrade(Trade? trade, string entryPrefix)
         {
             if (trade?.ExternalOrderId == null)
@@ -1646,6 +2295,10 @@ namespace TradeSphere.TradingEngine
             return 0;
         }
 
+        private static string FormatPrice(decimal value)
+        {
+            return value.ToString("0.#####", System.Globalization.CultureInfo.InvariantCulture);
+        }
         private static (decimal stopLoss, decimal takeProfit) ParseRiskLevels(string? externalOrderId)
         {
             var stopLoss = 0m;
@@ -1992,7 +2645,7 @@ namespace TradeSphere.TradingEngine
             if (!signal.LtfBull) buyBlocks.Add("LTF is not bullish");
             if (!signal.HourlyGreen) buyBlocks.Add("HTF candle is not green");
             if (!signal.NearBuyFib) buyBlocks.Add("price is not near buy Fib zone");
-            if (!signal.Bounce) buyBlocks.Add("bounce candle not confirmed");
+            if (!signal.Bounce) buyBlocks.Add(IsRetestEntryMode(config) ? "Fib retest/bounce not confirmed" : "bounce candle not confirmed");
             if (!(signal.Rsi >= config.rsiBuyMin && signal.Rsi < 70m)) buyBlocks.Add($"RSI not in buy range ({config.rsiBuyMin}-70)");
 
             var sellBlocks = new List<string>();
@@ -2000,7 +2653,7 @@ namespace TradeSphere.TradingEngine
             if (!signal.LtfBear) sellBlocks.Add("LTF is not bearish");
             if (!signal.HourlyRed) sellBlocks.Add("HTF candle is not red");
             if (!signal.NearSellFib) sellBlocks.Add("price is not near sell Fib zone");
-            if (!signal.Rejection) sellBlocks.Add("rejection candle not confirmed");
+            if (!signal.Rejection) sellBlocks.Add(IsRetestEntryMode(config) ? "Fib retest/rejection not confirmed" : "rejection candle not confirmed");
             if (!(signal.Rsi <= config.rsiSellMax && signal.Rsi > 30m)) sellBlocks.Add($"RSI not in sell range (30-{config.rsiSellMax})");
 
             var buyReason = buyBlocks.Count == 0 ? "ready" : string.Join(", ", buyBlocks);
@@ -2031,7 +2684,11 @@ namespace TradeSphere.TradingEngine
                 config.rsiSellMax,
                 config.zoneBuffer,
                 config.stopLossPct,
-                config.tp2RiskReward
+                config.tp2RiskReward,
+                config.entryMode,
+                config.retestLookbackBars,
+                config.retestBufferAtr,
+                config.requireRetestConfirmation
             });
         }
 
@@ -2125,6 +2782,18 @@ namespace TradeSphere.TradingEngine
             public decimal tp1RiskReward { get; set; } = 1.5m;
             public decimal tp2RiskReward { get; set; } = 2.0m;
             public decimal stopLossPct { get; set; } = 0.004m;
+            public int swingLength { get; set; } = 5;
+            public int emaAcceptanceBars { get; set; } = 2;
+            public int maxWaitBars { get; set; } = 30;
+            public string entryMode { get; set; } = "Retest";
+            public int retestLookbackBars { get; set; } = 20;
+            public decimal retestBufferAtr { get; set; } = 0.25m;
+            public bool requireRetestConfirmation { get; set; } = true;
+            public bool requireLiquiditySweep { get; set; } = false;
+            public bool requireBosConfirmation { get; set; } = false;
+            public int bosLookback { get; set; } = 20;
+            public int atrLength { get; set; } = 14;
+            public decimal atrBuffer { get; set; } = 0.35m;
             public string tradeSizeType { get; set; } = "Contracts";
             public decimal tradeSizeValue { get; set; } = 1.0m;
             public decimal leverage { get; set; } = 10.0m;
@@ -2136,7 +2805,6 @@ namespace TradeSphere.TradingEngine
             public decimal trailStepR { get; set; } = 0.25m;
             public decimal trailDistanceR { get; set; } = 1.0m;
         }
-
         private class Fib55Signal
         {
             public decimal CurrentPrice { get; set; }
@@ -2151,6 +2819,11 @@ namespace TradeSphere.TradingEngine
             public bool Bounce { get; set; }
             public bool Rejection { get; set; }
             public decimal Rsi { get; set; }
+            public bool BuySweep { get; set; }
+            public bool SellSweep { get; set; }
+            public bool BullBos { get; set; }
+            public bool BearBos { get; set; }
+            public decimal SuggestedStopLoss { get; set; }
             public bool Buy { get; set; }
             public bool Sell { get; set; }
         }
@@ -2280,3 +2953,10 @@ namespace TradeSphere.TradingEngine
         }
     }
 }
+
+
+
+
+
+
+

@@ -1,16 +1,20 @@
-<div class="flex h-screen bg-gray-100">
+<div class="flex h-screen app-shell bg-gray-100">
     <app-sidebar class="w-64 flex-shrink-0 bg-white shadow-md"></app-sidebar>
     <div class="flex-1 flex flex-col overflow-hidden">
-        <header class="bg-white shadow p-4 flex justify-between items-center">
+        <header class="app-header bg-white shadow p-4 flex justify-between items-center">
             <h1 class="text-xl font-semibold text-gray-800">TradeSphere</h1>
-            <div class="flex items-center gap-4">
+            <div class="flex items-center gap-3">
+                <button mat-stroked-button type="button" class="theme-toggle" (click)="toggleTheme()" [attr.aria-label]="isDarkTheme ? 'Switch to light theme' : 'Switch to dark theme'">
+                    <mat-icon class="mr-1">{{ isDarkTheme ? 'light_mode' : 'dark_mode' }}</mat-icon>
+                    {{ isDarkTheme ? 'Light' : 'Dark' }}
+                </button>
                 <span class="text-sm text-gray-600">Welcome, {{ username }}</span>
                 <button mat-icon-button>
                     <mat-icon>notifications</mat-icon>
                 </button>
             </div>
         </header>
-        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
+        <main class="app-main flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
             <router-outlet></router-outlet>
         </main>
     </div>

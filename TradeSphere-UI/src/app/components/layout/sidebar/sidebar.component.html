@@ -1,9 +1,9 @@
-<div class="flex flex-col h-full">
+﻿<div class="flex h-full min-h-0 flex-col">
     <div class="h-16 flex items-center justify-center border-b">
         <span class="text-2xl font-bold text-primary">TS</span>
         <span class="ml-2 text-xl font-semibold text-gray-800">TradeSphere</span>
     </div>
-    <nav class="flex-1 px-2 py-4 space-y-2">
+    <nav class="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-4 pr-1">
         <a routerLink="/dashboard" routerLinkActive="bg-blue-50 text-blue-600"
             class="flex items-center px-4 py-3 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
             <mat-icon class="mr-3">dashboard</mat-icon>
@@ -40,6 +40,24 @@
             <span class="font-medium">MT5</span>
         </a>
         <div class="space-y-1">
+            <button type="button" (click)="toggleCryptoOptions()"
+                class="flex w-full items-center px-4 py-3 rounded-lg hover:bg-gray-50 transition-colors"
+                [class.bg-blue-50]="isCryptoOptionsActive()" [class.text-blue-600]="isCryptoOptionsActive()"
+                [class.text-gray-600]="!isCryptoOptionsActive()">
+                <mat-icon class="mr-3">candlestick_chart</mat-icon>
+                <span class="font-medium">Crypto Options</span>
+                <mat-icon class="ml-auto text-base transition-transform" [class.rotate-180]="isCryptoOptionsExpanded">expand_more</mat-icon>
+            </button>
+            <div *ngIf="isCryptoOptionsExpanded" class="ml-6 max-h-72 space-y-1 overflow-y-auto border-l border-slate-200 pl-3 pr-1">
+                <a routerLink="/crypto-options/dashboard" routerLinkActive="bg-blue-50 text-blue-600" class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"><mat-icon class="mr-2 text-base">dashboard</mat-icon><span class="font-medium">Dashboard</span></a>
+                <a routerLink="/crypto-options/backtest" routerLinkActive="bg-blue-50 text-blue-600" class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"><mat-icon class="mr-2 text-base">science</mat-icon><span class="font-medium">0DTE Backtest</span></a>
+                <a routerLink="/crypto-options/strategy-config" routerLinkActive="bg-blue-50 text-blue-600" class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"><mat-icon class="mr-2 text-base">tune</mat-icon><span class="font-medium">Strategy Config</span></a>
+                <a routerLink="/crypto-options/option-chain" routerLinkActive="bg-blue-50 text-blue-600" class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"><mat-icon class="mr-2 text-base">table_chart</mat-icon><span class="font-medium">Option Chain</span></a>
+                <a routerLink="/crypto-options/runs" routerLinkActive="bg-blue-50 text-blue-600" class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"><mat-icon class="mr-2 text-base">receipt_long</mat-icon><span class="font-medium">Backtest Runs</span></a>
+                <a routerLink="/crypto-options/risk-report" routerLinkActive="bg-blue-50 text-blue-600" class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"><mat-icon class="mr-2 text-base">health_and_safety</mat-icon><span class="font-medium">Risk Report</span></a>
+            </div>
+        </div>
+        <div class="space-y-1">
             <button type="button" (click)="toggleIndianMarket()"
                 class="flex w-full items-center px-4 py-3 rounded-lg hover:bg-gray-50 transition-colors"
                 [class.bg-blue-50]="isIndianMarketActive()" [class.text-blue-600]="isIndianMarketActive()"
@@ -49,7 +67,7 @@
                 <mat-icon class="ml-auto text-base transition-transform" [class.rotate-180]="isIndianMarketExpanded">expand_more</mat-icon>
             </button>
 
-            <div *ngIf="isIndianMarketExpanded" class="ml-6 space-y-1 border-l border-slate-200 pl-3">
+            <div *ngIf="isIndianMarketExpanded" class="ml-6 max-h-72 space-y-1 overflow-y-auto border-l border-slate-200 pl-3 pr-1">
                 <a routerLink="/indian-market/options" routerLinkActive="bg-blue-50 text-blue-600"
                     class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
                     <mat-icon class="mr-2 text-base">show_chart</mat-icon>
@@ -59,6 +77,11 @@
                     class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
                     <mat-icon class="mr-2 text-base">rocket_launch</mat-icon>
                     <span class="font-medium">IPOs</span>
+                </a>
+                <a routerLink="/indian-market/stock-analyzer" routerLinkActive="bg-blue-50 text-blue-600"
+                    class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
+                    <mat-icon class="mr-2 text-base">manage_search</mat-icon>
+                    <span class="font-medium">Stock Analyzer</span>
                 </a>
                 <a routerLink="/indian-market/intraday-picks" routerLinkActive="bg-blue-50 text-blue-600"
                     class="flex items-center px-3 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-50 transition-colors">
@@ -81,3 +104,6 @@
         </button>
     </div>
 </div>
+
+
+

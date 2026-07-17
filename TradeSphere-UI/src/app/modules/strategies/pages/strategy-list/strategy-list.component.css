@@ -1,1 +1,30 @@
-/* empty */
+.strategy-scroll-panel {
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+  padding-right: 4px;
+  scroll-behavior: smooth;
+}
+
+.strategy-scroll-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.strategy-scroll-panel::-webkit-scrollbar-track {
+  background: #eef2f7;
+  border-radius: 999px;
+}
+
+.strategy-scroll-panel::-webkit-scrollbar-thumb {
+  background: #c7d2fe;
+  border-radius: 999px;
+}
+
+.strategy-scroll-panel::-webkit-scrollbar-thumb:hover {
+  background: #a5b4fc;
+}
+
+@media (max-width: 768px) {
+  .strategy-scroll-panel {
+    max-height: calc(100vh - 230px);
+  }
+}

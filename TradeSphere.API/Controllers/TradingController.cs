@@ -46,5 +46,13 @@ namespace TradeSphere.API.Controllers
             await _tradingService.DeleteAllTradesAsync(userId);
             return NoContent();
         }
+
+        [HttpPost("trades/{tradeId}/resume-auto-risk")]
+        public async Task<IActionResult> ResumeAutoRisk(int tradeId)
+        {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
+            await _tradingService.ResumeMt5AutoRiskAsync(userId, tradeId);
+            return NoContent();
+        }
     }
 }
