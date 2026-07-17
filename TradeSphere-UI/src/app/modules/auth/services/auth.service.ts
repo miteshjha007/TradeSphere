@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { environment } from '../../../../environments/environment';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
@@ -8,7 +9,7 @@ import { Router } from '@angular/router';
     providedIn: 'root'
 })
 export class AuthService {
-    private apiUrl = 'http://localhost:5083/api/auth'; // Updated to match running API
+    private apiUrl = `${environment.apiBaseUrl}/auth`; // Updated to match running API
     private tokenKey = 'tradesphere_token';
 
     constructor(private http: HttpClient, private router: Router) { }
@@ -104,4 +105,3 @@ export class AuthService {
         return JSON.parse(jsonPayload);
     }
 }
-

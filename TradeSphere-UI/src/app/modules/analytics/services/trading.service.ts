@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { environment } from '../../../../environments/environment';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { AuthService } from '../../auth/services/auth.service';
@@ -49,7 +50,7 @@ export interface TradingOverview {
   providedIn: 'root'
 })
 export class TradingService {
-  private apiUrl = 'http://localhost:5083/api/trading';
+  private apiUrl = `${environment.apiBaseUrl}/trading`;
 
   constructor(private http: HttpClient, private authService: AuthService) { }
 

@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { environment } from '../../../../environments/environment';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { AuthService } from '../../auth/services/auth.service';
@@ -129,7 +130,7 @@ export interface CryptoOptionChainFetchResult {
 }
 @Injectable({ providedIn: 'root' })
 export class CryptoOptionsService {
-  private apiUrl = 'http://localhost:5083/api/crypto-options';
+  private apiUrl = `${environment.apiBaseUrl}/crypto-options`;
 
   constructor(private http: HttpClient, private authService: AuthService) { }
 
@@ -185,6 +186,3 @@ export class CryptoOptionsService {
     return this.http.get<any>(`${this.apiUrl}/reports/risk`, { headers: this.getHeaders() });
   }
 }
-
-
-

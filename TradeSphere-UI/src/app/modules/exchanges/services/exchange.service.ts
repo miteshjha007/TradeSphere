@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { environment } from '../../../../environments/environment';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { AuthService } from '../../auth/services/auth.service';
@@ -19,7 +20,7 @@ export interface ConnectionTestResult {
   providedIn: 'root'
 })
 export class ExchangeService {
-  private apiUrl = 'http://localhost:5083/api/exchange';
+  private apiUrl = `${environment.apiBaseUrl}/exchange`;
 
   constructor(private http: HttpClient, private authService: AuthService) { }
 

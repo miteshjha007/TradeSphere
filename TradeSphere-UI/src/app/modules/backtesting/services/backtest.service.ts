@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { environment } from '../../../../environments/environment';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { AuthService } from '../../auth/services/auth.service';
@@ -8,7 +9,7 @@ import { Backtest, BacktestResultDetails, RunBacktestDto } from '../models/backt
     providedIn: 'root'
 })
 export class BacktestService {
-    private apiUrl = 'http://localhost:5083/api/backtest';
+    private apiUrl = `${environment.apiBaseUrl}/backtest`;
 
     constructor(private http: HttpClient, private authService: AuthService) { }
 

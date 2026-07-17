@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { environment } from '../../../../environments/environment';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { AuthService } from '../../auth/services/auth.service';
@@ -8,7 +9,7 @@ import { Strategy, UserStrategy, DeployStrategyDto, CreateStrategyDto } from '..
   providedIn: 'root'
 })
 export class StrategyService {
-  private apiUrl = 'http://localhost:5083/api/strategy';
+  private apiUrl = `${environment.apiBaseUrl}/strategy`;
 
   constructor(private http: HttpClient, private authService: AuthService) { }
 
