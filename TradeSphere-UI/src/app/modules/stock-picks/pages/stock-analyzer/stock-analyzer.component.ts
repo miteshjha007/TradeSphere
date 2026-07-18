@@ -1,6 +1,12 @@
 import { Component } from '@angular/core';
 import { StockAnalysis, StockPicksService } from '../../services/stock-picks.service';
 
+interface ResearchLink {
+  label: string;
+  hint: string;
+  url: string;
+}
+
 @Component({
   selector: 'app-stock-analyzer',
   templateUrl: './stock-analyzer.component.html',
@@ -78,13 +84,43 @@ export class StockAnalyzerComponent {
   }
 
   tradingViewUrl(symbol?: string): string {
-    const cleanSymbol = (symbol || this.symbol || '')
+    const cleanSymbol = this.cleanSymbol(symbol);
+    return `https://www.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(cleanSymbol)}`;
+  }
+
+  researchLinks(symbol?: string): ResearchLink[] {
+    const cleanSymbol = this.cleanSymbol(symbol);
+    return [
+      {
+        label: 'Screener FA',
+        hint: '10Y P&L, balance sheet, cash flow, ratios, annual reports',
+        url: `https://www.screener.in/company/${encodeURIComponent(cleanSymbol)}/consolidated/`
+      },
+      {
+        label: 'NSE Quote',
+        hint: 'Official exchange quote, corporate actions, announcements',
+        url: `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(cleanSymbol)}`
+      },
+      {
+        label: 'Tickertape',
+        hint: 'Beginner-friendly checklist, peer view, valuation context',
+        url: `https://www.tickertape.in/search?text=${encodeURIComponent(cleanSymbol)}`
+      },
+      {
+        label: 'Trendlyne',
+        hint: 'DVM score, broker views, institutional activity context',
+        url: `https://trendlyne.com/search/?q=${encodeURIComponent(cleanSymbol)}`
+      }
+    ];
+  }
+
+  private cleanSymbol(symbol?: string): string {
+    return (symbol || this.symbol || '')
       .trim()
       .toUpperCase()
       .replace('NSE:', '')
       .replace('.NS', '');
-
-    return `https://www.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(cleanSymbol)}`;
   }
 }
+
 

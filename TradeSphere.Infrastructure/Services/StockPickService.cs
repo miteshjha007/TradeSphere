@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using TradeSphere.Application.Common.Interfaces;
@@ -251,38 +251,91 @@ namespace TradeSphere.Infrastructure.Services
         private async Task<StockFundamentals> FetchFundamentalsAsync(string symbol, CancellationToken cancellationToken)
         {
             var fundamentals = new StockFundamentals();
+            var yahooSymbol = $"{symbol}.NS";
+
+            await TryFetchQuoteSummaryFundamentalsAsync(yahooSymbol, fundamentals, cancellationToken);
+            await TryFetchQuoteFundamentalsAsync(yahooSymbol, fundamentals, cancellationToken);
+
+            fundamentals.HasAnyData = fundamentals.MarketCap > 0
+                || fundamentals.TrailingPe > 0
+                || fundamentals.ForwardPe > 0
+                || fundamentals.PriceToBook > 0
+                || fundamentals.RoePercent != 0
+                || fundamentals.RevenueGrowthPercent != 0
+                || fundamentals.ProfitMarginsPercent != 0
+                || fundamentals.TrailingEps != 0;
+
+            return fundamentals;
+        }
+
+        private async Task TryFetchQuoteSummaryFundamentalsAsync(string yahooSymbol, StockFundamentals fundamentals, CancellationToken cancellationToken)
+        {
             try
             {
-                var yahooSymbol = $"{symbol}.NS";
                 var url = $"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{yahooSymbol}?modules=financialData,defaultKeyStatistics,summaryDetail,price";
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.UserAgent.ParseAdd("Mozilla/5.0 TradeSphere/1.0");
                 using var response = await _httpClient.SendAsync(request, cancellationToken);
                 if (!response.IsSuccessStatusCode)
                 {
-                    return fundamentals;
+                    return;
                 }
 
                 var root = await response.Content.ReadFromJsonAsync<JsonNode>(cancellationToken: cancellationToken);
                 var result = root?["quoteSummary"]?["result"]?[0];
-                fundamentals.LongName = ReadString(result?["price"]?["longName"]);
-                fundamentals.MarketCap = ReadRawDecimal(result?["price"]?["marketCap"]);
-                fundamentals.TrailingPe = ReadRawDecimal(result?["summaryDetail"]?["trailingPE"]);
-                fundamentals.ForwardPe = ReadRawDecimal(result?["summaryDetail"]?["forwardPE"]);
-                fundamentals.RoePercent = ReadRawDecimal(result?["financialData"]?["returnOnEquity"]) * 100;
-                fundamentals.DebtToEquity = ReadRawDecimal(result?["financialData"]?["debtToEquity"]);
-                fundamentals.RevenueGrowthPercent = ReadRawDecimal(result?["financialData"]?["revenueGrowth"]) * 100;
-                fundamentals.ProfitMarginsPercent = ReadRawDecimal(result?["financialData"]?["profitMargins"]) * 100;
-                fundamentals.HasAnyData = fundamentals.MarketCap > 0 || fundamentals.TrailingPe > 0 || fundamentals.RoePercent != 0 || fundamentals.RevenueGrowthPercent != 0;
+                fundamentals.LongName = FirstText(fundamentals.LongName, ReadString(result?["price"]?["longName"]));
+                fundamentals.MarketCap = FirstPositive(fundamentals.MarketCap, ReadRawDecimal(result?["price"]?["marketCap"]));
+                fundamentals.TrailingPe = FirstPositive(fundamentals.TrailingPe, ReadRawDecimal(result?["summaryDetail"]?["trailingPE"]));
+                fundamentals.ForwardPe = FirstPositive(fundamentals.ForwardPe, ReadRawDecimal(result?["summaryDetail"]?["forwardPE"]));
+                fundamentals.PriceToBook = FirstPositive(fundamentals.PriceToBook, ReadRawDecimal(result?["defaultKeyStatistics"]?["priceToBook"]));
+                fundamentals.TrailingEps = FirstNonZero(fundamentals.TrailingEps, ReadRawDecimal(result?["defaultKeyStatistics"]?["trailingEps"]));
+                fundamentals.ForwardEps = FirstNonZero(fundamentals.ForwardEps, ReadRawDecimal(result?["defaultKeyStatistics"]?["forwardEps"]));
+                fundamentals.DividendYieldPercent = FirstNonZero(fundamentals.DividendYieldPercent, ReadRawDecimal(result?["summaryDetail"]?["dividendYield"]) * 100);
+                fundamentals.RoePercent = FirstNonZero(fundamentals.RoePercent, ReadRawDecimal(result?["financialData"]?["returnOnEquity"]) * 100);
+                fundamentals.DebtToEquity = FirstPositive(fundamentals.DebtToEquity, ReadRawDecimal(result?["financialData"]?["debtToEquity"]));
+                fundamentals.RevenueGrowthPercent = FirstNonZero(fundamentals.RevenueGrowthPercent, ReadRawDecimal(result?["financialData"]?["revenueGrowth"]) * 100);
+                fundamentals.ProfitMarginsPercent = FirstNonZero(fundamentals.ProfitMarginsPercent, ReadRawDecimal(result?["financialData"]?["profitMargins"]) * 100);
+                fundamentals.Source = FirstText(fundamentals.Source, "Yahoo quoteSummary");
             }
             catch
             {
-                fundamentals.HasAnyData = false;
+                // Public fundamentals are best-effort; candle-based analysis should still work.
             }
-
-            return fundamentals;
         }
 
+        private async Task TryFetchQuoteFundamentalsAsync(string yahooSymbol, StockFundamentals fundamentals, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var url = $"https://query1.finance.yahoo.com/v7/finance/quote?symbols={yahooSymbol}";
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.UserAgent.ParseAdd("Mozilla/5.0 TradeSphere/1.0");
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return;
+                }
+
+                var root = await response.Content.ReadFromJsonAsync<JsonNode>(cancellationToken: cancellationToken);
+                var result = root?["quoteResponse"]?["result"]?[0];
+                fundamentals.LongName = FirstText(fundamentals.LongName, ReadString(result?["longName"]), ReadString(result?["shortName"]));
+                fundamentals.MarketCap = FirstPositive(fundamentals.MarketCap, ReadDecimal(result?["marketCap"]));
+                fundamentals.TrailingPe = FirstPositive(fundamentals.TrailingPe, ReadDecimal(result?["trailingPE"]));
+                fundamentals.ForwardPe = FirstPositive(fundamentals.ForwardPe, ReadDecimal(result?["forwardPE"]));
+                fundamentals.PriceToBook = FirstPositive(fundamentals.PriceToBook, ReadDecimal(result?["priceToBook"]));
+                fundamentals.TrailingEps = FirstNonZero(fundamentals.TrailingEps, ReadDecimal(result?["epsTrailingTwelveMonths"]));
+                fundamentals.ForwardEps = FirstNonZero(fundamentals.ForwardEps, ReadDecimal(result?["epsForward"]));
+                fundamentals.BookValue = FirstPositive(fundamentals.BookValue, ReadDecimal(result?["bookValue"]));
+                fundamentals.DividendYieldPercent = FirstNonZero(fundamentals.DividendYieldPercent, ReadDecimal(result?["trailingAnnualDividendYield"]) * 100);
+                fundamentals.FiftyTwoWeekLow = FirstPositive(fundamentals.FiftyTwoWeekLow, ReadDecimal(result?["fiftyTwoWeekLow"]));
+                fundamentals.FiftyTwoWeekHigh = FirstPositive(fundamentals.FiftyTwoWeekHigh, ReadDecimal(result?["fiftyTwoWeekHigh"]));
+                fundamentals.Source = string.IsNullOrWhiteSpace(fundamentals.Source) ? "Yahoo quote" : $"{fundamentals.Source} + quote fallback";
+            }
+            catch
+            {
+                // Public fundamentals are best-effort; candle-based analysis should still work.
+            }
+        }
         private static void ApplyFundamentalSignals(StockAnalysisDto analysis, StockFundamentals fundamentals, string horizon)
         {
             if (!string.IsNullOrWhiteSpace(fundamentals.LongName))
@@ -294,26 +347,34 @@ namespace TradeSphere.Infrastructure.Services
             {
                 analysis.FundamentalScore = horizon == "Long Term" ? 42 : 50;
                 analysis.FundamentalSignals.Add("Fundamental ratios were not available from the free public feed, so recommendation is mostly technical.");
-                analysis.Warnings.Add("For long-term investing, verify quarterly results, debt, promoter holding, and valuation on Screener/NSE before buying.");
+                analysis.FundamentalSignals.Add($"Verify manually: Screener https://www.screener.in/company/{analysis.Symbol}/consolidated/ and NSE https://www.nseindia.com/get-quotes/equity?symbol={analysis.Symbol}.");
+                analysis.Warnings.Add("For long-term investing, verify quarterly results, debt, promoter holding, cash flow, and valuation on Screener/NSE before buying.");
                 return;
             }
 
-            var score = 45m;
-            if (fundamentals.RoePercent >= 15) score += 14; else if (fundamentals.RoePercent > 0) score += 5;
-            if (fundamentals.RevenueGrowthPercent >= 10) score += 12; else if (fundamentals.RevenueGrowthPercent < 0) score -= 8;
-            if (fundamentals.ProfitMarginsPercent >= 10) score += 10; else if (fundamentals.ProfitMarginsPercent < 3 && fundamentals.ProfitMarginsPercent != 0) score -= 5;
-            if (fundamentals.DebtToEquity > 0 && fundamentals.DebtToEquity <= 80) score += 8; else if (fundamentals.DebtToEquity > 150) score -= 10;
-            if (fundamentals.TrailingPe > 0 && fundamentals.TrailingPe <= 45) score += 7; else if (fundamentals.TrailingPe > 80) score -= 8;
+            var score = 42m;
+            if (fundamentals.RoePercent >= 20) score += 16; else if (fundamentals.RoePercent >= 15) score += 12; else if (fundamentals.RoePercent > 0) score += 5;
+            if (fundamentals.RevenueGrowthPercent >= 15) score += 14; else if (fundamentals.RevenueGrowthPercent >= 8) score += 8; else if (fundamentals.RevenueGrowthPercent < 0) score -= 8;
+            if (fundamentals.ProfitMarginsPercent >= 15) score += 11; else if (fundamentals.ProfitMarginsPercent >= 8) score += 7; else if (fundamentals.ProfitMarginsPercent < 3 && fundamentals.ProfitMarginsPercent != 0) score -= 5;
+            if (fundamentals.DebtToEquity > 0 && fundamentals.DebtToEquity <= 50) score += 10; else if (fundamentals.DebtToEquity > 0 && fundamentals.DebtToEquity <= 100) score += 5; else if (fundamentals.DebtToEquity > 150) score -= 10;
+            if (fundamentals.TrailingPe > 0 && fundamentals.TrailingPe <= 35) score += 8; else if (fundamentals.TrailingPe > 35 && fundamentals.TrailingPe <= 55) score += 3; else if (fundamentals.TrailingPe > 80) score -= 8;
+            if (fundamentals.PriceToBook > 0 && fundamentals.PriceToBook <= 5) score += 5; else if (fundamentals.PriceToBook > 12) score -= 5;
+            if (fundamentals.TrailingEps > 0 && fundamentals.ForwardEps > fundamentals.TrailingEps) score += 5;
+            if (fundamentals.DividendYieldPercent > 0) score += Math.Min(fundamentals.DividendYieldPercent, 3);
 
             analysis.FundamentalScore = Math.Round(Math.Clamp(score, 0, 100), 2);
+            if (!string.IsNullOrWhiteSpace(fundamentals.Source)) analysis.FundamentalSignals.Add($"Fundamental data source: {fundamentals.Source} public feed.");
             if (fundamentals.MarketCap > 0) analysis.FundamentalSignals.Add($"Market cap approx Rs. {fundamentals.MarketCap / 10000000m:0.##} Cr.");
-            if (fundamentals.TrailingPe > 0) analysis.FundamentalSignals.Add($"Trailing PE {fundamentals.TrailingPe:0.##}; forward PE {fundamentals.ForwardPe:0.##}.");
-            if (fundamentals.RoePercent != 0) analysis.FundamentalSignals.Add($"ROE {fundamentals.RoePercent:0.##}%.");
-            if (fundamentals.RevenueGrowthPercent != 0) analysis.FundamentalSignals.Add($"Revenue growth {fundamentals.RevenueGrowthPercent:0.##}%.");
-            if (fundamentals.ProfitMarginsPercent != 0) analysis.FundamentalSignals.Add($"Profit margin {fundamentals.ProfitMarginsPercent:0.##}%.");
-            if (fundamentals.DebtToEquity > 0) analysis.FundamentalSignals.Add($"Debt/equity {fundamentals.DebtToEquity:0.##}.");
+            if (fundamentals.TrailingPe > 0 || fundamentals.ForwardPe > 0) analysis.FundamentalSignals.Add($"Valuation: trailing PE {FormatMetric(fundamentals.TrailingPe)}, forward PE {FormatMetric(fundamentals.ForwardPe)}, P/B {FormatMetric(fundamentals.PriceToBook)}.");
+            if (fundamentals.TrailingEps != 0 || fundamentals.ForwardEps != 0) analysis.FundamentalSignals.Add($"Earnings: EPS TTM {FormatMetric(fundamentals.TrailingEps)}, forward EPS {FormatMetric(fundamentals.ForwardEps)}.");
+            if (fundamentals.RoePercent != 0) analysis.FundamentalSignals.Add($"Profitability: ROE {fundamentals.RoePercent:0.##}%.");
+            if (fundamentals.RevenueGrowthPercent != 0) analysis.FundamentalSignals.Add($"Growth: revenue growth {fundamentals.RevenueGrowthPercent:0.##}%.");
+            if (fundamentals.ProfitMarginsPercent != 0) analysis.FundamentalSignals.Add($"Margins: profit margin {fundamentals.ProfitMarginsPercent:0.##}%.");
+            if (fundamentals.DebtToEquity > 0) analysis.FundamentalSignals.Add($"Balance sheet: debt/equity {fundamentals.DebtToEquity:0.##}.");
+            if (fundamentals.DividendYieldPercent > 0) analysis.FundamentalSignals.Add($"Dividend yield approx {fundamentals.DividendYieldPercent:0.##}%.");
+            if (fundamentals.FiftyTwoWeekLow > 0 && fundamentals.FiftyTwoWeekHigh > 0) analysis.FundamentalSignals.Add($"52W range Rs. {fundamentals.FiftyTwoWeekLow:0.##} - Rs. {fundamentals.FiftyTwoWeekHigh:0.##}.");
+            analysis.FundamentalSignals.Add($"Manual verification links: Screener https://www.screener.in/company/{analysis.Symbol}/consolidated/ | NSE https://www.nseindia.com/get-quotes/equity?symbol={analysis.Symbol}");
         }
-
         private static StockAnalysisDto CreateAnalysis(StockCandleSeries series, string horizon, decimal technicalScore, decimal lastPrice, decimal change1D, decimal change5D, decimal change20D, decimal volatility)
         {
             return new StockAnalysisDto
@@ -381,6 +442,25 @@ namespace TradeSphere.Infrastructure.Services
         {
             var raw = node?["raw"] ?? node;
             return ReadDecimal(raw);
+        }
+        private static decimal FirstPositive(params decimal[] values)
+        {
+            return values.FirstOrDefault(value => value > 0);
+        }
+
+        private static decimal FirstNonZero(params decimal[] values)
+        {
+            return values.FirstOrDefault(value => value != 0);
+        }
+
+        private static string FirstText(params string[] values)
+        {
+            return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+        }
+
+        private static string FormatMetric(decimal value)
+        {
+            return value == 0 ? "-" : value.ToString("0.##", CultureInfo.InvariantCulture);
         }
         private async Task<List<StockCandleSeries>> FetchUniverseAsync(IEnumerable<StockUniverseItem> universe, string range, CancellationToken cancellationToken)
         {
@@ -617,10 +697,18 @@ namespace TradeSphere.Infrastructure.Services
         private sealed class StockFundamentals
         {
             public bool HasAnyData { get; set; }
+            public string Source { get; set; } = string.Empty;
             public string LongName { get; set; } = string.Empty;
             public decimal MarketCap { get; set; }
             public decimal TrailingPe { get; set; }
             public decimal ForwardPe { get; set; }
+            public decimal PriceToBook { get; set; }
+            public decimal TrailingEps { get; set; }
+            public decimal ForwardEps { get; set; }
+            public decimal BookValue { get; set; }
+            public decimal DividendYieldPercent { get; set; }
+            public decimal FiftyTwoWeekLow { get; set; }
+            public decimal FiftyTwoWeekHigh { get; set; }
             public decimal RoePercent { get; set; }
             public decimal DebtToEquity { get; set; }
             public decimal RevenueGrowthPercent { get; set; }
@@ -631,6 +719,9 @@ namespace TradeSphere.Infrastructure.Services
         private sealed record StockCandleSeries(string Symbol, string Name, List<StockCandle> Candles);
     }
 }
+
+
+
 
 
 
