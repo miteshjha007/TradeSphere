@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Json;
+using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
 using TradeSphere.Application.Common.Interfaces;
 using TradeSphere.Application.DTOs;
@@ -255,12 +257,14 @@ namespace TradeSphere.Infrastructure.Services
 
             await TryFetchQuoteSummaryFundamentalsAsync(yahooSymbol, fundamentals, cancellationToken);
             await TryFetchQuoteFundamentalsAsync(yahooSymbol, fundamentals, cancellationToken);
+            await TryFetchScreenerFundamentalsAsync(symbol, fundamentals, cancellationToken);
 
             fundamentals.HasAnyData = fundamentals.MarketCap > 0
                 || fundamentals.TrailingPe > 0
                 || fundamentals.ForwardPe > 0
                 || fundamentals.PriceToBook > 0
                 || fundamentals.RoePercent != 0
+                || fundamentals.RocePercent != 0
                 || fundamentals.RevenueGrowthPercent != 0
                 || fundamentals.ProfitMarginsPercent != 0
                 || fundamentals.TrailingEps != 0;
@@ -336,6 +340,51 @@ namespace TradeSphere.Infrastructure.Services
                 // Public fundamentals are best-effort; candle-based analysis should still work.
             }
         }
+        private async Task TryFetchScreenerFundamentalsAsync(string symbol, StockFundamentals fundamentals, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var url = $"https://www.screener.in/company/{symbol}/consolidated/";
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.UserAgent.ParseAdd("Mozilla/5.0 TradeSphere/1.0");
+                request.Headers.Referrer = new Uri("https://www.screener.in/");
+
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return;
+                }
+
+                var html = await response.Content.ReadAsStringAsync(cancellationToken);
+                var text = NormalizeHtmlText(html);
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    return;
+                }
+
+                fundamentals.LongName = FirstText(fundamentals.LongName, ReadScreenerCompanyName(text));
+                var marketCapCrore = ReadScreenerMetric(text, "Market Cap");
+                if (marketCapCrore > 0)
+                {
+                    fundamentals.MarketCap = FirstPositive(fundamentals.MarketCap, marketCapCrore * 10000000m);
+                }
+
+                fundamentals.TrailingPe = FirstPositive(fundamentals.TrailingPe, ReadScreenerMetric(text, "Stock P/E", "P/E"));
+                fundamentals.PriceToBook = FirstPositive(fundamentals.PriceToBook, ReadScreenerMetric(text, "Price to book value", "Price to Book", "P/B"));
+                fundamentals.BookValue = FirstPositive(fundamentals.BookValue, ReadScreenerMetric(text, "Book Value"));
+                fundamentals.DividendYieldPercent = FirstNonZero(fundamentals.DividendYieldPercent, ReadScreenerMetric(text, "Dividend Yield"));
+                fundamentals.RocePercent = FirstNonZero(fundamentals.RocePercent, ReadScreenerMetric(text, "ROCE"));
+                fundamentals.RoePercent = FirstNonZero(fundamentals.RoePercent, ReadScreenerMetric(text, "ROE"));
+                fundamentals.DebtToEquity = FirstPositive(fundamentals.DebtToEquity, ReadScreenerMetric(text, "Debt to equity", "Debt / Equity"));
+                fundamentals.RevenueGrowthPercent = FirstNonZero(fundamentals.RevenueGrowthPercent, ReadScreenerMetric(text, "Sales growth"));
+                fundamentals.ProfitMarginsPercent = FirstNonZero(fundamentals.ProfitMarginsPercent, ReadScreenerMetric(text, "OPM", "Operating Profit Margin"));
+                fundamentals.Source = string.IsNullOrWhiteSpace(fundamentals.Source) ? "Screener public page" : $"{fundamentals.Source} + Screener fallback";
+            }
+            catch
+            {
+                // Screener is a public webpage fallback. If it blocks/throttles, keep the rest of the analyzer alive.
+            }
+        }
         private static void ApplyFundamentalSignals(StockAnalysisDto analysis, StockFundamentals fundamentals, string horizon)
         {
             if (!string.IsNullOrWhiteSpace(fundamentals.LongName))
@@ -346,7 +395,7 @@ namespace TradeSphere.Infrastructure.Services
             if (!fundamentals.HasAnyData)
             {
                 analysis.FundamentalScore = horizon == "Long Term" ? 42 : 50;
-                analysis.FundamentalSignals.Add("Fundamental ratios were not available from the free public feed, so recommendation is mostly technical.");
+                analysis.FundamentalSignals.Add("Live fundamental ratios were not returned by Yahoo/Screener public feeds. Use the Deep Fundamental Checks links for manual verification.");
                 analysis.FundamentalSignals.Add($"Verify manually: Screener https://www.screener.in/company/{analysis.Symbol}/consolidated/ and NSE https://www.nseindia.com/get-quotes/equity?symbol={analysis.Symbol}.");
                 analysis.Warnings.Add("For long-term investing, verify quarterly results, debt, promoter holding, cash flow, and valuation on Screener/NSE before buying.");
                 return;
@@ -354,6 +403,7 @@ namespace TradeSphere.Infrastructure.Services
 
             var score = 42m;
             if (fundamentals.RoePercent >= 20) score += 16; else if (fundamentals.RoePercent >= 15) score += 12; else if (fundamentals.RoePercent > 0) score += 5;
+            if (fundamentals.RocePercent >= 20) score += 14; else if (fundamentals.RocePercent >= 15) score += 10; else if (fundamentals.RocePercent > 0) score += 4;
             if (fundamentals.RevenueGrowthPercent >= 15) score += 14; else if (fundamentals.RevenueGrowthPercent >= 8) score += 8; else if (fundamentals.RevenueGrowthPercent < 0) score -= 8;
             if (fundamentals.ProfitMarginsPercent >= 15) score += 11; else if (fundamentals.ProfitMarginsPercent >= 8) score += 7; else if (fundamentals.ProfitMarginsPercent < 3 && fundamentals.ProfitMarginsPercent != 0) score -= 5;
             if (fundamentals.DebtToEquity > 0 && fundamentals.DebtToEquity <= 50) score += 10; else if (fundamentals.DebtToEquity > 0 && fundamentals.DebtToEquity <= 100) score += 5; else if (fundamentals.DebtToEquity > 150) score -= 10;
@@ -368,6 +418,7 @@ namespace TradeSphere.Infrastructure.Services
             if (fundamentals.TrailingPe > 0 || fundamentals.ForwardPe > 0) analysis.FundamentalSignals.Add($"Valuation: trailing PE {FormatMetric(fundamentals.TrailingPe)}, forward PE {FormatMetric(fundamentals.ForwardPe)}, P/B {FormatMetric(fundamentals.PriceToBook)}.");
             if (fundamentals.TrailingEps != 0 || fundamentals.ForwardEps != 0) analysis.FundamentalSignals.Add($"Earnings: EPS TTM {FormatMetric(fundamentals.TrailingEps)}, forward EPS {FormatMetric(fundamentals.ForwardEps)}.");
             if (fundamentals.RoePercent != 0) analysis.FundamentalSignals.Add($"Profitability: ROE {fundamentals.RoePercent:0.##}%.");
+            if (fundamentals.RocePercent != 0) analysis.FundamentalSignals.Add($"Efficiency: ROCE {fundamentals.RocePercent:0.##}%.");
             if (fundamentals.RevenueGrowthPercent != 0) analysis.FundamentalSignals.Add($"Growth: revenue growth {fundamentals.RevenueGrowthPercent:0.##}%.");
             if (fundamentals.ProfitMarginsPercent != 0) analysis.FundamentalSignals.Add($"Margins: profit margin {fundamentals.ProfitMarginsPercent:0.##}%.");
             if (fundamentals.DebtToEquity > 0) analysis.FundamentalSignals.Add($"Balance sheet: debt/equity {fundamentals.DebtToEquity:0.##}.");
@@ -433,6 +484,35 @@ namespace TradeSphere.Infrastructure.Services
             return (horizon ?? string.Empty).Contains("long", StringComparison.OrdinalIgnoreCase);
         }
 
+
+        private static string NormalizeHtmlText(string html)
+        {
+            var withoutScripts = Regex.Replace(html, "<script[\\s\\S]*?</script>|<style[\\s\\S]*?</style>", " ", RegexOptions.IgnoreCase);
+            var text = Regex.Replace(withoutScripts, "<[^>]+>", " ");
+            text = WebUtility.HtmlDecode(text);
+            return Regex.Replace(text, "\\s+", " ").Trim();
+        }
+
+        private static string ReadScreenerCompanyName(string text)
+        {
+            var match = Regex.Match(text, @"^\s*([A-Za-z0-9&.,'() \-]+?)\s+share price", RegexOptions.IgnoreCase);
+            return match.Success ? match.Groups[1].Value.Trim() : string.Empty;
+        }
+
+        private static decimal ReadScreenerMetric(string text, params string[] labels)
+        {
+            foreach (var label in labels)
+            {
+                var pattern = $"{Regex.Escape(label)}\\s*(?:₹|Rs\\.?|:)?\\s*([-+]?\\d[\\d,]*(?:\\.\\d+)?)";
+                var match = Regex.Match(text, pattern, RegexOptions.IgnoreCase);
+                if (match.Success && decimal.TryParse(match.Groups[1].Value.Replace(",", string.Empty), NumberStyles.Any, CultureInfo.InvariantCulture, out var value))
+                {
+                    return value;
+                }
+            }
+
+            return 0;
+        }
         private static string ReadString(JsonNode? node)
         {
             return node?.ToString() ?? string.Empty;
@@ -710,6 +790,7 @@ namespace TradeSphere.Infrastructure.Services
             public decimal FiftyTwoWeekLow { get; set; }
             public decimal FiftyTwoWeekHigh { get; set; }
             public decimal RoePercent { get; set; }
+            public decimal RocePercent { get; set; }
             public decimal DebtToEquity { get; set; }
             public decimal RevenueGrowthPercent { get; set; }
             public decimal ProfitMarginsPercent { get; set; }
@@ -719,6 +800,11 @@ namespace TradeSphere.Infrastructure.Services
         private sealed record StockCandleSeries(string Symbol, string Name, List<StockCandle> Candles);
     }
 }
+
+
+
+
+
 
 
 
