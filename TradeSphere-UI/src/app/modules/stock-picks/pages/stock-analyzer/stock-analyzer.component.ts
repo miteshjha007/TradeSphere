@@ -1,4 +1,4 @@
-﻿import { Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { StockAnalysis, StockPicksService } from '../../services/stock-picks.service';
 
 @Component({
@@ -76,4 +76,15 @@ export class StockAnalyzerComponent {
   formatDate(date?: string): string {
     return date ? new Date(date).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
   }
+
+  tradingViewUrl(symbol?: string): string {
+    const cleanSymbol = (symbol || this.symbol || '')
+      .trim()
+      .toUpperCase()
+      .replace('NSE:', '')
+      .replace('.NS', '');
+
+    return `https://www.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(cleanSymbol)}`;
+  }
 }
+

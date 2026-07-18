@@ -1,4 +1,4 @@
-﻿import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, Subscription } from 'rxjs';
 import { StockPick, StockPickDashboard, StockPicksService } from '../../services/stock-picks.service';
@@ -103,7 +103,18 @@ export class StockPicksDashboardComponent implements OnInit, OnDestroy {
     return new Date(date).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
 
+  tradingViewUrl(symbol: string): string {
+    const cleanSymbol = (symbol || '')
+      .trim()
+      .toUpperCase()
+      .replace('NSE:', '')
+      .replace('.NS', '');
+
+    return `https://www.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(cleanSymbol)}`;
+  }
+
   private updateModeFromUrl(): void {
     this.mode = this.router.url.includes('long-term') ? 'long-term' : 'intraday';
   }
 }
+

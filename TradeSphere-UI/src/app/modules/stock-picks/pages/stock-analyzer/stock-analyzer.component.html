@@ -1,4 +1,4 @@
-﻿<div class="min-h-screen bg-slate-50 p-8">
+<div class="min-h-screen bg-slate-50 p-8">
   <div class="mx-auto max-w-7xl space-y-6">
     <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
       <div>
@@ -59,6 +59,10 @@
             <div class="mt-1 text-xs" [class.text-emerald-600]="analysis.change1DPercent >= 0" [class.text-red-500]="analysis.change1DPercent < 0">
               1D {{ analysis.change1DPercent | number:'1.2-2' }}%
             </div>
+            <a [href]="tradingViewUrl(analysis.symbol)" target="_blank" rel="noopener noreferrer" class="mt-4 inline-flex items-center justify-center gap-2 rounded-2xl border border-blue-200 bg-white px-4 py-2 text-xs font-black text-blue-700 shadow-sm hover:border-blue-400 hover:bg-blue-50">
+              <mat-icon class="text-base">open_in_new</mat-icon>
+              View on TradingView
+            </a>
           </div>
         </div>
 
@@ -128,3 +132,4 @@
     </ng-container>
   </div>
 </div>
+
